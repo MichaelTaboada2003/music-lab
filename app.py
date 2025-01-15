@@ -2,6 +2,8 @@ from fastapi import FastAPI, Query
 from fastapi.staticfiles import StaticFiles
 import yt_dlp
 import os
+import subprocess
+import json
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
@@ -20,7 +22,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 app.mount("/canciones", StaticFiles(directory="canciones"), name="canciones")
+
+ARTISTAS = {
+    "Impacto.webm": "Enjambre",
+    "did i tell u that i miss u": "adore",
+}
 
 
 @app.get("/")
@@ -53,12 +61,34 @@ def descargar_audio_mp3(
         return {"status": "error", "message": str(e)}
     
     
+def obtener_duracion(ruta_archivo):
+    try:
+        comando = [
+            "ffprobe", 
+            "-v", "error", 
+            "-show_entries", "format=duration", 
+            "-of", "json", 
+            ruta_archivo
+        ]
+        resultado = subprocess.run(comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if resultado.returncode == 0:
+            info = json.loads(resultado.stdout)
+            duracion_segundos = float(info['format']['duration'])
+            minutos = int(duracion_segundos // 60)
+            segundos = int(duracion_segundos % 60)
+            return f"{minutos}:{str(segundos).zfill(2)}"
+        else:
+            return "Desconocida"
+    except Exception as e:
+        return "Desconocida"
+
 @app.get("/lista_canciones")
 def lista_canciones():
-    archivos_mp3 = []
+    archivos_webm = []
     for nombre in os.listdir("canciones"):
-        archivos_mp3.append(nombre)   
-    return {"canciones": archivos_mp3}
-
-
-
+        ruta_archivo = os.path.join("canciones", nombre)
+        if os.path.isfile(ruta_archivo) and nombre.endswith(".webm"):
+            duracion = obtener_duracion(ruta_archivo)
+            artista = ARTISTAS.get(nombre, "Desconocido")  # Obtener el artista del diccionario
+            archivos_webm.append({"nombre": nombre, "duracion": duracion, "artista": artista})
+    return {"canciones": archivos_webm}

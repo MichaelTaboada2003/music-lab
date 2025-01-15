@@ -39,7 +39,7 @@ body {
     color: #fff;
 }
 
-.artist-name {
+#currentArtistName {
     color: #b3b3b3;
     font-size: 0.9rem;
 }
@@ -91,7 +91,7 @@ body {
 }
 
 #currentTime, #duration {
-    color: white;
+    color: rgba(255, 255, 255, 0.5);
     font-size: 14px;
     width: 40px;
 }
@@ -207,10 +207,29 @@ body {
 
 /* Playlist */
 .playlist {
-    margin-top: 24px;
+    margin-top: 20px;
     border-top: 1px solid #282828;
-    padding-top: 24px;
+    padding-top: 20px;
+    padding-right: 6px;
+    max-height: 210px; /* Ajusta la altura según el diseño (60px por canción aproximadamente) */
+    overflow-y: auto; /* Habilita el scroll vertical si el contenido excede la altura */
+    scrollbar-width: thin; /* Estiliza la barra de desplazamiento en navegadores compatibles */
+    scrollbar-color: #1ed760 #282828;
 }
+
+/* Estilo para la barra de desplazamiento en navegadores basados en Webkit */
+.playlist::-webkit-scrollbar {
+    width: 8px; /* Ancho de la barra de desplazamiento */
+  }
+  
+  .playlist::-webkit-scrollbar-thumb {
+    background-color: #1ed760; /* Color de la barra */
+    border-radius: 4px; /* Bordes redondeados */
+  }
+  
+  .playlist::-webkit-scrollbar-track {
+    background-color: #282828; /* Fondo del track */
+  }
 
 .song-item {
     display: flex;
