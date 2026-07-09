@@ -24,7 +24,16 @@ music-lab/
 ├── .env                   # Secrets and env config (gitignored)
 ├── static/                # Frontend (no build step)
 │   ├── index.html         # Single-page UI (Reproductor, Letras, Video, Descubrir)
-│   ├── app.js             # All UI logic + API calls (still a monolith)
+│   ├── js/                # ES modules (no bundler required)
+│   │   ├── main.js        # Entry point: init + startup calls
+│   │   ├── api.js         # HTTP helpers, setStatus, pollJob, refreshSongSelect
+│   │   ├── karaoke.js     # Karaoke engine: wipe, RAF loop, plain lyrics
+│   │   ├── player.js      # Audio player, playlist, search
+│   │   ├── lyrics.js      # Letras view
+│   │   ├── studio.js      # Video view: sync + generation
+│   │   ├── discover.js    # Descubrir (Spotify)
+│   │   ├── visualizer.js  # Aurora Web Audio visualizer
+│   │   └── nav.js         # SPA navigation + hash routing
 │   └── style.css
 ├── canciones/             # Downloaded MP3s (gitignored)
 ├── letras/                # <song>.txt lyrics + <song>.sync.json sync cache
@@ -64,9 +73,8 @@ music-lab/
   Whisper actually matched the word (reliable) vs. it was interpolated.
 - Paths in pipeline modules are made absolute before processing, since Demucs
   may change the working directory.
-- Frontend `app.js` is organized by view (Reproductor, Letras, Video,
-  Descubrir) with clear section banners. It is still a single file — the
-  next refactor phase will split it into ES modules.
+- Frontend `app.js` is organized by view (Reproductor, Descargar, Letras,
+  Karaoke, Video) with clear section banners; keep that structure when editing.
 
 ## Adding features
 
@@ -76,3 +84,5 @@ music-lab/
   existing pipeline files), exposed as an importable function and, ideally,
   a CLI entry point.
 - Frontend changes are edited directly in `static/` (no bundler).
+  New UI logic goes in the matching module under `static/js/`. New views get
+  their own module (e.g. `static/js/settings.js`) and are imported in `main.js`.

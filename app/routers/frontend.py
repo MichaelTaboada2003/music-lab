@@ -1,7 +1,7 @@
 """
 Sirve el HTML de la SPA con cache-busting basado en mtime, para que los
-navegadores siempre recojan la última versión de app.js/style.css tras un
-cambio.
+navegadores siempre recojan la última versión de js/main.js y style.css
+tras un cambio.
 """
 
 from fastapi import APIRouter
