@@ -51,10 +51,22 @@ python tiktok_generator.py cancion.mp3 letra.txt -o salida.mp4 --start 30 --end 
 python lyrics.py letra.txt --audio cancion.mp3   # terminal karaoke view
 ```
 
+## Environment variables (.env)
+
+- `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` — credentials from the
+  Spotify Developer Dashboard. Required only if you use the Descubrir
+  section.
+- `APP_BASE_URL` — public base URL of the server (default
+  `http://127.0.0.1:8000`). Used to build the Spotify OAuth redirect
+  URI. Must match EXACTLY the Redirect URI registered in the dashboard.
+- `APP_HOST`, `APP_PORT` — used by the `music_lab.py` launcher when it
+  spawns uvicorn (defaults `127.0.0.1` / `8000`).
+
 ## Notes / gotchas
 
-- No dependency manifest (requirements.txt) exists yet. Dependencies live in
-  `venv`. If you add a dependency, install it into the venv.
+- Dependencies are pinned in `requirements.txt` (generated with `pip
+  freeze`). Reinstall with `pip install -r requirements.txt` after
+  activating the venv. Update the file after adding a new dep.
 - Heavy operations (Demucs separation, Whisper transcription) are **cached**:
   `vocals/*.vocals.wav` for isolated vocals, `letras/*.sync.json` for alignment.
   The sync cache is invalidated when the config signature (model, vad,
