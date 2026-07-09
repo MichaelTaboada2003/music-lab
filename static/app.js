@@ -877,20 +877,44 @@ function isInLibrary(title) {
   });
 }
 
-/** Descarga la canción al Lab vía búsqueda en YouTube. */
+/** Descarga la canción al Lab vía búsqueda en YouTube.
+ *  Es tolerante a errores "falsos positivos": yt-dlp a veces lanza un
+ *  DownloadError con un client y luego OTRO client sí descarga, o completa
+ *  el archivo en background. Después de la petición (falle o no) volvemos
+ *  a cargar la biblioteca y comprobamos si la canción realmente está.
+ */
 async function downloadFromSpotify(btn, title, artists) {
   btn.disabled = true;
   btn.textContent = "Descargando…";
+  btn.title = "";
+  let requestErr = null;
   try {
     await apiPost("/api/descargar", { url: `ytsearch:${title} ${artists} audio` });
+  } catch (e) {
+    requestErr = e;
+  }
+
+  // Verificación real: aunque haya habido error, ¿aparece la canción en la
+  // biblioteca? Si sí, el error era ruido y la tratamos como éxito.
+  await cargarListaCanciones();
+  refreshSongSelect(studioSongSelect);
+  if (isInLibrary(title)) {
     btn.textContent = "En tu biblioteca";
     btn.classList.add("in-lib");
-    cargarListaCanciones();
-    refreshSongSelect(studioSongSelect);
-  } catch (e) {
-    btn.textContent = "Error, reintentar";
-    btn.disabled = false;
+    btn.title = "";
+    return;
   }
+
+  // Descarga realmente fallida: comunicar según el motivo.
+  const msg = ((requestErr && requestErr.message) || "").toLowerCase();
+  if (msg.includes("drm") || msg.includes("protegido")) {
+    btn.textContent = "Sin fuente disponible";
+    btn.title = "El primer resultado de YouTube está protegido con DRM. Prueba buscando manualmente otra versión y pegando la URL en 'Añadir canción por URL'.";
+  } else {
+    btn.textContent = "Error, reintentar";
+    btn.title = (requestErr && requestErr.message) || "No se pudo descargar la canción.";
+  }
+  btn.disabled = false;
 }
 
 

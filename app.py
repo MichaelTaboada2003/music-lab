@@ -239,6 +239,12 @@ def api_descargar(payload: DescargaRequest):
         )
         return {"status": "ok", "archivo": resultado.name}
     except Exception as e:
+        # Los errores del recurso (DRM, video privado, edad, etc.) son 422:
+        # el servidor entendió la petición pero el recurso remoto no está
+        # disponible. Reservamos 500 para fallos internos reales.
+        msg = str(e).lower()
+        if any(k in msg for k in ("drm", "sign in", "age", "confirm", "protegido")):
+            raise HTTPException(422, str(e))
         raise HTTPException(500, str(e))
 
 

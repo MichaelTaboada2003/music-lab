@@ -75,9 +75,16 @@ def download_audio(url: str, output_dir: str = ".", filename: str = None,
         "no_warnings": quiet,
     }
 
-    # YouTube ha ido restringiendo el cliente "web" (SABR streaming, formatos
-    # sin url). Probamos varios clientes alternativos como fallback.
-    client_attempts = [None, "android", "ios", "tv"]
+    # YouTube capa distintos clientes según el video. Probamos varias combinaciones
+    # de player_client como fallback (algunos videos solo dan URL válida con
+    # ciertos clientes y no con otros). Incluimos web_music/web_safari/mweb que
+    # a veces funcionan cuando los "app clients" (android/ios/tv) fallan por
+    # DRM o por challenges de firma sin resolver.
+    client_attempts = [
+        None,
+        "android", "ios", "tv",
+        "web_music", "web_safari", "mweb", "web",
+    ]
     last_error = None
 
     print(f"Descargando audio de: {url}")
@@ -102,8 +109,21 @@ def download_audio(url: str, output_dir: str = ".", filename: str = None,
                 print(f"Falló con cliente '{client}', probando siguiente opción...")
             continue
 
+    # Si el error es de DRM/protección, damos un mensaje corto y accionable
+    # para que el frontend lo muestre tal cual al usuario.
+    err_msg = str(last_error) if last_error else "error desconocido"
+    lower = err_msg.lower()
+    if "drm" in lower:
+        raise RuntimeError(
+            "Este video está protegido con DRM y no se puede descargar. "
+            "Intenta con otra versión del mismo tema (por ejemplo, un lyric video u otra subida)."
+        )
+    if "sign in" in lower or "age" in lower or "confirm" in lower:
+        raise RuntimeError(
+            "Este video requiere iniciar sesión o verificar edad y no se puede descargar."
+        )
     raise RuntimeError(
-        f"No se pudo descargar el audio tras varios intentos. Último error: {last_error}"
+        f"No se pudo descargar el audio tras varios intentos. Detalle: {err_msg}"
     )
 
 
