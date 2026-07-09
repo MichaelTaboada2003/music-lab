@@ -3,10 +3,9 @@
 //               Mis favoritas (Spotify Web API)
 // ============================================================
 
-import { apiGet, apiPost, setStatus } from "./api.js";
-import { canciones } from "./player.js";
+import { apiGet, apiPost, setStatus, refreshSongSelect } from "./api.js";
+import { canciones, cargarListaCanciones } from "./player.js";
 import { studioSongSelect } from "./studio.js";
-import { refreshSongSelect, cargarListaCanciones } from "./player.js";
 
 // Re-export para que nav.js pueda llamar a loadRecap la primera vez.
 export let discoverLoaded = false;

@@ -5,10 +5,17 @@
 //              acoplamiento circular con player.js.
 // ============================================================
 
-// Estado compartido: leído/escrito por player.js y por este módulo.
-export let karaokeData = null;
-export let karaokeActiveLine = null;
+// Estado del motor de karaoke — interno al módulo. Solo accesible via getters.
+let _karaokeData = null;
+let _karaokeActiveLine = null;
 export let karaokeRAF = null;
+
+export function getKaraokeData() { return _karaokeData; }
+export function resetKaraoke() {
+  _karaokeData = null;
+  _karaokeActiveLine = null;
+  stopKaraokeLoop();
+}
 
 // Fijamos referencias al audio del reproductor y a los nodos del DOM.
 // init() debe llamarse desde main.js después de que el DOM esté listo.
@@ -29,8 +36,8 @@ export function init(audioPlayer, karaokeStage, karaokeText) {
 }
 
 export function showKaraoke(stem, data) {
-  karaokeData = data;
-  karaokeActiveLine = null;
+  _karaokeData = data;
+  _karaokeActiveLine = null;
   _karaokeStage.hidden = false;
   _karaokeText.classList.remove("plain");
 
@@ -71,7 +78,8 @@ export function showKaraoke(stem, data) {
 
 /** Muestra la letra sin sincronizar (respaldo cuando aún no hay karaoke). */
 export function showPlainLyrics(texto) {
-  karaokeData = null;
+  _karaokeData = null;
+  _karaokeActiveLine = null;
   _karaokeStage.hidden = false;
   document.getElementById("npLyricsEmpty").style.display = "none";
   _karaokeText.classList.add("plain");
@@ -106,7 +114,7 @@ function _setActiveFill(line, t) {
 }
 
 export function updateKaraoke() {
-  if (!karaokeData) return;
+  if (!_karaokeData) return;
   const scroll = _karaokeText.querySelector(".k-scroll");
   if (!scroll) return;
   const t = _audioPlayer.currentTime;
@@ -135,8 +143,8 @@ export function updateKaraoke() {
     if (state === "active") _setActiveFill(line, t);
   });
 
-  if (active && active !== karaokeActiveLine) {
-    karaokeActiveLine = active;
+  if (active && active !== _karaokeActiveLine) {
+    _karaokeActiveLine = active;
     const offset =
       _karaokeText.clientHeight / 2 -
       (active.offsetTop + active.offsetHeight / 2);

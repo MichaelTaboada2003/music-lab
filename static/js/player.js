@@ -7,11 +7,8 @@ import { apiGet, setStatus } from "./api.js";
 import {
   showKaraoke,
   showPlainLyrics,
-  karaokeData,
-  karaokeActiveLine,
-  stopKaraokeLoop,
+  resetKaraoke,
 } from "./karaoke.js";
-import * as karaoke from "./karaoke.js";
 
 // ---- Estado mutable (leído también por studio.js y discover.js) --------
 export let canciones = [];
@@ -68,8 +65,7 @@ export function cargarCancion(index) {
 }
 
 async function _loadPlayerLyrics(cancion) {
-  karaoke.karaokeData = null;
-  karaoke.karaokeActiveLine = null;
+  resetKaraoke();
   const emptyEl = document.getElementById("npLyricsEmpty");
   if (!cancion) {
     karaokeStage.hidden = true;
