@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Music Lab</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <canvas id="bgCanvas" class="bg-canvas"></canvas>
+    
+    <!-- Barra lateral de navegación -->
+    <nav class="sidebar">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; vertical-align:middle"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+        Music Lab
+      </div>
+
+      <div class="nav-group-label">Biblioteca</div>
+      <button class="nav-item active" data-view="player">
+        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; vertical-align:middle; margin-top:-2px"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg> Reproductor
+      </button>
+
+      <div class="nav-group-label">Estudio</div>
+      <button class="nav-item" data-view="lyrics">
+        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; vertical-align:middle; margin-top:-2px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Letras
+      </button>
+      <button class="nav-item" data-view="karaoke">
+        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; vertical-align:middle; margin-top:-2px"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg> Karaoke
+      </button>
+      <button class="nav-item" data-view="video">
+        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; vertical-align:middle; margin-top:-2px"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg> Video TikTok
+      </button>
+    </nav>
+
+    <main class="content">
+
+      <!-- ============ VISTA: REPRODUCTOR ============ -->
+      <section class="view active" id="view-player">
+        <h1>Reproductor</h1>
+        <div class="player-container">
+          <div class="song-info">
+            <div id="currentSongTitle">Sin canción</div>
+            <div id="currentArtistName">Elige una canción de la lista</div>
+          </div>
+
+          <audio id="audioPlayer" preload="metadata"></audio>
+
+          <div class="buttons-container">
+            <div class="controls">
+              <button class="control-button" id="prevBtn" title="Anterior">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" stroke-width="3"><path d="M7 6v12"></path><path d="M18 6l-6 6l6 6"></path></svg>
+              </button>
+              <button class="control-button play-pause" id="playBtn" title="Reproducir/Pausar">
+                <svg id="playIconSvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" stroke-width="2"><path d="M10 18l6 -6l-6 -6v12"></path></svg>
+              </button>
+              <button class="control-button" id="nextBtn" title="Siguiente">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" stroke-width="3"><path d="M6 6l6 6l-6 6"></path><path d="M17 5v13"></path></svg>
+              </button>
+            </div>
+            <div class="volume-container">
+              <span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" stroke-width="2">
+                  <path d="M15 8a5 5 0 0 1 0 8"></path>
+                  <path d="M6 15h-2a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1h2l3.5 -4.5a.8 .8 0 0 1 1.5 .5v14a.8 .8 0 0 1 -1.5 .5l-3.5 -4.5"></path>
+                </svg>
+              </span>
+              <input type="range" class="volume-slider" min="0" max="1" step="0.1" value="0.5" />
+            </div>
+          </div>
+
+          <div class="progress-container">
+            <span id="currentTime">0:00</span>
+            <div class="progress-bar"><div class="progress"></div></div>
+            <span id="duration">0:00</span>
+          </div>
+
+          <div class="playlist" id="playlistContainer"></div>
+        </div>
+      </section>
+
+      <!-- ============ VISTA: DESCARGAR ============ -->
+      <section class="view" id="view-download">
+        <h1>Descargar canción</h1>
+        <p class="hint">Pega la URL (YouTube y similares). Solo descarga contenido del que tengas derechos o licencia adecuada.</p>
+        <form id="downloadForm" class="form-card">
+          <label>URL del audio/video</label>
+          <input type="text" id="downloadUrl" placeholder="https://www.youtube.com/watch?v=..." required />
+
+          <label>Nombre para guardarla (opcional)</label>
+          <input type="text" id="downloadName" placeholder="Se usará el título si lo dejas vacío" />
+
+          <button type="submit" id="downloadSubmit">Descargar</button>
+        </form>
+        <div id="downloadStatus" class="status-box"></div>
+      </section>
+
+      <!-- ============ VISTA: LETRAS ============ -->
+      <section class="view" id="view-lyrics">
+        <h1>Ver / crear letra</h1>
+        <div class="form-card">
+          <label>Canción</label>
+          <select id="lyricsSongSelect"></select>
+
+          <label>Letra (separa las estrofas con una línea vacía)</label>
+          <textarea id="lyricsTextarea" rows="16" placeholder="Elige una canción para ver o escribir su letra..."></textarea>
+
+          <button id="lyricsSaveBtn">Guardar letra</button>
+        </div>
+        <div id="lyricsStatus" class="status-box"></div>
+      </section>
+
+      <!-- ============ VISTA: KARAOKE ============ -->
+      <section class="view" id="view-karaoke">
+        <h1>Karaoke sincronizado</h1>
+        <div class="form-card">
+          <label>Canción (necesita letra guardada)</label>
+          <select id="karaokeSongSelect"></select>
+
+          <div class="inline-fields">
+            <div>
+              <label>Idioma</label>
+              <input type="text" id="karaokeLanguage" value="es" />
+            </div>
+            <div>
+              <label>Modelo Whisper</label>
+              <select id="karaokeModel">
+                <option value="tiny">tiny (rápido)</option>
+                <option value="base">base</option>
+                <option value="small" selected>small (recomendado)</option>
+                <option value="medium">medium (lento, preciso)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="inline-fields">
+            <div class="checkbox-field">
+              <label><input type="checkbox" id="karaokeSeparate" checked /> Aislar voz (Demucs)</label>
+            </div>
+            <div class="checkbox-field">
+              <label><input type="checkbox" id="karaokeVad" checked /> Detección de voz (VAD)</label>
+            </div>
+            <div class="checkbox-field">
+              <label><input type="checkbox" id="karaokeForce" /> Forzar re-sincronización</label>
+            </div>
+          </div>
+
+          <p class="hint">
+            "Aislar voz" + "VAD" dan la mejor sincronía (evitan que la letra avance sobre
+            los instrumentales). La primera vez separa la voz con Demucs y puede tardar
+            un par de minutos; luego queda cacheada.
+          </p>
+
+          <button id="karaokeSyncBtn">Sincronizar</button>
+        </div>
+        <div id="karaokeStatus" class="status-box"></div>
+
+        <div class="karaoke-stage" id="karaokeStage" hidden>
+          <audio id="karaokeAudio" controls></audio>
+          <div class="karaoke-text" id="karaokeText"></div>
+        </div>
+      </section>
+
+      <!-- ============ VISTA: VIDEO ============ -->
+      <section class="view" id="view-video">
+        <h1>Generar video estilo TikTok</h1>
+        <div class="form-card">
+          <label>Canción (necesita letra guardada)</label>
+          <select id="videoSongSelect"></select>
+
+          <div class="inline-fields">
+            <div>
+              <label>Idioma</label>
+              <input type="text" id="videoLanguage" value="es" />
+            </div>
+            <div>
+              <label>Modelo Whisper</label>
+              <select id="videoModel">
+                <option value="tiny">tiny (rápido)</option>
+                <option value="base">base</option>
+                <option value="small" selected>small (recomendado)</option>
+                <option value="medium">medium (lento, preciso)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="inline-fields">
+            <div class="checkbox-field">
+              <label><input type="checkbox" id="videoSeparate" checked /> Aislar voz (Demucs)</label>
+            </div>
+            <div class="checkbox-field">
+              <label><input type="checkbox" id="videoVad" checked /> Detección de voz (VAD)</label>
+            </div>
+            <div class="checkbox-field">
+              <label><input type="checkbox" id="videoForce" /> Forzar re-sincronización</label>
+            </div>
+          </div>
+
+          <div class="inline-fields">
+            <div>
+              <label>Título a mostrar</label>
+              <input type="text" id="videoTitulo" placeholder="Se usará el nombre de la canción" />
+            </div>
+            <div>
+              <label>Artista (opcional)</label>
+              <input type="text" id="videoArtista" placeholder="Artista" />
+            </div>
+          </div>
+
+          <label>Nombre del video de salida</label>
+          <input type="text" id="videoOutputName" placeholder="Se usará el nombre de la canción si lo dejas vacío" />
+        </div>
+
+        <!-- Selección de fragmento -->
+        <div class="form-card" style="margin-top: 20px;">
+          <label>Fragmento a exportar</label>
+          <p class="hint">
+            Necesitas sincronizar la canción primero (botón abajo) para ver las estrofas
+            y elegir cuál usar, por ejemplo el coro. También puedes ajustar los segundos manualmente.
+          </p>
+
+          <button id="videoLoadStanzasBtn" type="button">Sincronizar / cargar estrofas</button>
+
+          <div id="stanzaPicker" class="stanza-picker"></div>
+
+          <div class="inline-fields">
+            <div>
+              <label>Inicio (segundos)</label>
+              <input type="number" id="fragStart" step="0.1" min="0" placeholder="0" />
+            </div>
+            <div>
+              <label>Fin (segundos)</label>
+              <input type="number" id="fragEnd" step="0.1" min="0" placeholder="duración completa" />
+            </div>
+            <div class="checkbox-field">
+              <button id="fragPreviewBtn" type="button">▶ Previsualizar fragmento</button>
+            </div>
+          </div>
+
+          <audio id="fragPreviewAudio" controls style="width: 100%; margin-top: 10px;" hidden></audio>
+
+          <button id="videoGenerateBtn">Generar video</button>
+        </div>
+        <div id="videoStatus" class="status-box"></div>
+
+        <h2>Videos generados</h2>
+        <div class="video-gallery" id="videoGallery"></div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
