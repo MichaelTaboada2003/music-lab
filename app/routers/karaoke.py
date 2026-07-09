@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from lyrics_sync import align_lyrics_to_audio
 
 from ..jobs import start_job
-from ..utils import find_song, lyrics_path_for, sync_cache_path_for, vad_value
+from ..utils import find_song, lyrics_path_for, sync_cache_path_for, vad_value, vocals_path_for
 
 router = APIRouter(tags=["karaoke"])
 
@@ -21,11 +21,12 @@ router = APIRouter(tags=["karaoke"])
 @router.get("/api/karaoke/{stem}")
 def api_karaoke_cache(stem: str):
     cache = sync_cache_path_for(stem)
+    tiene_vocals = vocals_path_for(stem).is_file()
     if not cache.is_file():
-        return {"existe": False}
+        return {"existe": False, "tiene_vocals": tiene_vocals}
     with open(cache, "r", encoding="utf-8") as f:
         data = json.load(f)
-    return {"existe": True, "datos": data}
+    return {"existe": True, "datos": data, "tiene_vocals": tiene_vocals}
 
 
 class SyncRequest(BaseModel):

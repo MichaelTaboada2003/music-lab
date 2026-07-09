@@ -22,7 +22,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .config import CANCIONES_DIR, STATIC_DIR, VIDEOS_DIR
+from .config import CANCIONES_DIR, STATIC_DIR, VIDEOS_DIR, VOCALS_DIR
 from .jobs import router as jobs_router
 from .routers import frontend, karaoke, songs, spotify, video
 
@@ -39,9 +39,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Estáticos: audio, videos y los assets de la SPA.
+# Estáticos: audio, videos, voces y los assets de la SPA.
 app.mount("/canciones", StaticFiles(directory=str(CANCIONES_DIR)), name="canciones")
 app.mount("/videos", StaticFiles(directory=str(VIDEOS_DIR)), name="videos")
+app.mount("/vocals", StaticFiles(directory=str(VOCALS_DIR)), name="vocals")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Routers por dominio.

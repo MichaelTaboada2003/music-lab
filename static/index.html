@@ -184,7 +184,11 @@
             tardar un par de minutos; luego queda cacheada.
           </p>
 
-          <button id="studioSyncBtn">Sincronizar</button>
+          <div class="sync-actions">
+            <button id="studioSyncBtn">Sincronizar</button>
+            <button id="studioListenVocalsBtn" class="btn-ghost" hidden>Escuchar voz</button>
+          </div>
+          <audio id="studioVocalsAudio" hidden></audio>
           <div class="job-progress" id="syncProgress" hidden>
             <div class="job-progress-head">
               <span class="job-progress-phase" id="syncProgressPhase"></span>

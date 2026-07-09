@@ -13,7 +13,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-from .config import AUDIO_EXTS, CANCIONES_DIR, LETRAS_DIR
+from .config import AUDIO_EXTS, CANCIONES_DIR, LETRAS_DIR, VOCALS_DIR
 
 
 def obtener_duracion(ruta_archivo: Path) -> str:
@@ -45,6 +45,10 @@ def lyrics_path_for(stem: str) -> Path:
 
 def sync_cache_path_for(stem: str) -> Path:
     return LETRAS_DIR / f"{stem}.sync.json"
+
+
+def vocals_path_for(stem: str) -> Path:
+    return VOCALS_DIR / f"{stem}.vocals.wav"
 
 
 def list_songs():

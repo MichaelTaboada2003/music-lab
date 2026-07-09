@@ -708,6 +708,12 @@ h2 {
   margin-top: 12px;
 }
 
+.sync-actions {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
 /* Fila de acciones del fragmento: dos botones ghost lado a lado. */
 .frag-actions {
   display: flex;

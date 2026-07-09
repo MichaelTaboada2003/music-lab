@@ -28,6 +28,9 @@ const fragPreviewLabel = document.getElementById("fragPreviewLabel");
 const fragPreviewTitle = document.getElementById("fragPreviewTitle");
 const fragPreviewArtist = document.getElementById("fragPreviewArtist");
 
+const studioListenVocalsBtn = document.getElementById("studioListenVocalsBtn");
+const studioVocalsAudio = document.getElementById("studioVocalsAudio");
+
 let videoStanzas = null;
 let fragPreviewRAF = null;
 
@@ -50,6 +53,17 @@ export function applyStudioSync(stem, data) {
 export async function onStudioSongChange() {
   setStatus(videoStatus, "");
   if (fragPreviewStage) fragPreviewStage.hidden = true;
+  
+  // Detener la voz si estaba reproduciéndose
+  if (studioVocalsAudio) {
+    studioVocalsAudio.pause();
+    studioVocalsAudio.currentTime = 0;
+  }
+  if (studioListenVocalsBtn) {
+    studioListenVocalsBtn.textContent = "Escuchar voz";
+    studioListenVocalsBtn.hidden = true;
+  }
+
   const stem = studioSongSelect.value;
   if (!stem) return;
   stanzaPicker.innerHTML = "";
@@ -59,6 +73,10 @@ export async function onStudioSongChange() {
 
   try {
     const data = await apiGet(`/api/karaoke/${encodeURIComponent(stem)}`);
+    if (data.tiene_vocals && studioListenVocalsBtn) {
+      studioListenVocalsBtn.hidden = false;
+      studioVocalsAudio.src = `/vocals/${encodeURIComponent(stem)}.vocals.wav`;
+    }
     if (data.existe) {
       setStatus(studioStatus, "Ya existe una sincronización. Puedes usarla o re-sincronizar.");
       applyStudioSync(stem, data.datos);
@@ -68,6 +86,22 @@ export async function onStudioSongChange() {
   } catch (e) {
     setStatus(studioStatus, `Error: ${e.message}`, "error");
   }
+}
+
+if (studioListenVocalsBtn && studioVocalsAudio) {
+  studioListenVocalsBtn.addEventListener("click", () => {
+    if (studioVocalsAudio.paused) {
+      studioVocalsAudio.play();
+      studioListenVocalsBtn.textContent = "Pausar voz";
+    } else {
+      studioVocalsAudio.pause();
+      studioListenVocalsBtn.textContent = "Escuchar voz";
+    }
+  });
+
+  studioVocalsAudio.addEventListener("ended", () => {
+    studioListenVocalsBtn.textContent = "Escuchar voz";
+  });
 }
 
 studioSongSelect.addEventListener("change", onStudioSongChange);
