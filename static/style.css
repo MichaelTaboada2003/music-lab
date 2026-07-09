@@ -407,8 +407,6 @@ h2 {
    y los "ghost" para que no hereden el look verde de accion primaria. */
 .form-card button:not(.select-button):not(.btn-ghost),
 #videoGenerateBtn {
-  margin-top: 20px;
-  align-self: flex-start;
   background: linear-gradient(180deg, var(--accent), var(--accent-2));
   color: #04140a;
   font-weight: 700;
@@ -418,6 +416,16 @@ h2 {
   padding: 11px 26px;
   cursor: pointer;
   transition: transform var(--t-fast), box-shadow var(--t-fast), filter var(--t-fast);
+}
+
+.form-card button:not(.select-button):not(.btn-ghost) {
+  margin-top: 20px;
+  align-self: flex-start;
+}
+
+#videoGenerateBtn {
+  margin-top: 0;
+  align-self: auto;
 }
 
 .form-card button:not(.select-button):not(.btn-ghost):hover,

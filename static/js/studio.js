@@ -55,6 +55,7 @@ export async function onStudioSongChange() {
   fragEndInput.value = "";
   fragPreviewAudio.hidden = true;
   videoStanzas = null;
+  setStatus(videoStatus, "");
 
   try {
     const data = await apiGet(`/api/karaoke/${encodeURIComponent(stem)}`);
