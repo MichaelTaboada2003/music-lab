@@ -30,8 +30,9 @@ _URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
 def is_url(value: str) -> bool:
-    """True si el string parece una URL (http/https), False si es una ruta local."""
-    return bool(_URL_RE.match(value.strip()))
+    """True si el string parece una URL (http/https) o un ytsearch, False si es una ruta local."""
+    val = value.strip()
+    return bool(_URL_RE.match(val)) or val.startswith("ytsearch:")
 
 
 def download_audio(url: str, output_dir: str = ".", filename: str = None,

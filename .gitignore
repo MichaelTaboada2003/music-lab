@@ -6,3 +6,5 @@ __pycache__/
 /venv
 *.sync.json
 /letras
+.env
+spotify_auth.json

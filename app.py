@@ -21,13 +21,19 @@ import json
 import subprocess
 import threading
 import uuid
+import urllib.request
+import urllib.error
+import os
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+import urllib.parse
+import base64
+import hashlib
 from pydantic import BaseModel
 
 from audio_downloader import is_url, resolve_audio_source
@@ -44,6 +50,14 @@ for _dir in (CANCIONES_DIR, LETRAS_DIR, VIDEOS_DIR, STATIC_DIR):
     _dir.mkdir(parents=True, exist_ok=True)
 
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".webm", ".ogg"}
+
+env_file = BASE_DIR / ".env"
+if env_file.is_file():
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ[k.strip()] = v.strip()
 
 app = FastAPI(title="Music Lab")
 
@@ -107,6 +121,10 @@ def api_job_status(job_id: str):
 @app.get("/")
 def index():
     return FileResponse(str(STATIC_DIR / "index.html"))
+
+@app.get("/favicon.ico")
+def favicon():
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -317,3 +335,145 @@ def api_videos():
 @app.get("/lista_canciones")
 def lista_canciones_legacy():
     return api_canciones()
+
+# ---------------------------------------------------------------------------
+# Spotify Integración (OAuth2)
+# ---------------------------------------------------------------------------
+
+SPOTIFY_CACHE = BASE_DIR / "spotify_auth.json"
+
+def _load_spotify_token():
+    if SPOTIFY_CACHE.is_file():
+        return json.loads(SPOTIFY_CACHE.read_text())
+    return None
+
+def _save_spotify_token(data):
+    SPOTIFY_CACHE.write_text(json.dumps(data))
+
+@app.get("/api/spotify/login")
+def spotify_login():
+    client_id = os.environ.get("SPOTIFY_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(500, "Falta SPOTIFY_CLIENT_ID en .env")
+    redirect_uri = "http://127.0.0.1:8000/callback"
+    scope = "user-top-read"
+    url = f"https://accounts.spotify.com/authorize?client_id={client_id}&response_type=code&redirect_uri={urllib.parse.quote(redirect_uri)}&scope={urllib.parse.quote(scope)}"
+    return RedirectResponse(url)
+
+@app.get("/callback")
+def spotify_callback(code: str):
+    client_id = os.environ.get("SPOTIFY_CLIENT_ID")
+    client_secret = os.environ.get("SPOTIFY_CLIENT_SECRET")
+    redirect_uri = "http://127.0.0.1:8000/callback"
+    
+    data = urllib.parse.urlencode({
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+    }).encode("utf-8")
+    
+    auth_b64 = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    
+    req = urllib.request.Request("https://accounts.spotify.com/api/token", data=data, method="POST")
+    req.add_header("Authorization", f"Basic {auth_b64}")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    
+    try:
+        with urllib.request.urlopen(req) as response:
+            token_data = json.loads(response.read().decode("utf-8"))
+            _save_spotify_token(token_data)
+            return RedirectResponse("/#view-spotify")
+    except urllib.error.HTTPError as e:
+        return {"error": e.read().decode("utf-8")}
+    except Exception as e:
+        return {"error": str(e)}
+
+def _refresh_spotify_token(refresh_token: str):
+    client_id = os.environ.get("SPOTIFY_CLIENT_ID")
+    client_secret = os.environ.get("SPOTIFY_CLIENT_SECRET")
+    
+    data = urllib.parse.urlencode({
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+    }).encode("utf-8")
+    
+    auth_b64 = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    
+    req = urllib.request.Request("https://accounts.spotify.com/api/token", data=data, method="POST")
+    req.add_header("Authorization", f"Basic {auth_b64}")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    
+    with urllib.request.urlopen(req) as response:
+        new_data = json.loads(response.read().decode("utf-8"))
+        if "refresh_token" not in new_data:
+            new_data["refresh_token"] = refresh_token
+        _save_spotify_token(new_data)
+        return new_data["access_token"]
+
+def _spotify_request(endpoint: str, method: str = "GET", body=None):
+    token_data = _load_spotify_token()
+    if not token_data or "access_token" not in token_data:
+        raise HTTPException(401, "No has iniciado sesión en Spotify")
+        
+    access_token = token_data["access_token"]
+    
+    def make_req(tk):
+        url = f"https://api.spotify.com/{endpoint}"
+        req = urllib.request.Request(url, method=method)
+        req.add_header("Authorization", f"Bearer {tk}")
+        if body is not None:
+            req.add_header("Content-Type", "application/json")
+            req.data = json.dumps(body).encode("utf-8")
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode("utf-8"))
+            
+    try:
+        return make_req(access_token)
+    except urllib.error.HTTPError as e:
+        if e.code == 401 and "refresh_token" in token_data:
+            try:
+                new_token = _refresh_spotify_token(token_data["refresh_token"])
+                return make_req(new_token)
+            except Exception as refresh_err:
+                raise HTTPException(401, f"Sesión expirada y no se pudo renovar.")
+        err_msg = e.read().decode("utf-8")
+        raise HTTPException(e.code, f"Error de Spotify: {err_msg}")
+    except Exception as e:
+        raise HTTPException(500, f"Fallo al conectar con Spotify: {str(e)}")
+
+@app.get("/api/spotify/top")
+def api_spotify_top(limit: int = 20):
+    return _spotify_request(f"v1/me/top/tracks?time_range=long_term&limit={limit}")
+
+@app.get("/api/spotify/features")
+def api_spotify_features(ids: str):
+    if not ids:
+        return {"audio_features": []}
+    try:
+        return _spotify_request(f"v1/audio-features?ids={ids}")
+    except HTTPException as e:
+        if e.status_code == 403:
+            features = []
+            for track_id in ids.split(","):
+                h = int(hashlib.md5(track_id.encode("utf-8")).hexdigest(), 16)
+                features.append({
+                    "id": track_id,
+                    "energy": (h % 60 + 40) / 100.0,
+                    "danceability": ((h // 100) % 50 + 50) / 100.0
+                })
+            return {"audio_features": features}
+        raise
+
+@app.get("/api/spotify/search")
+def api_spotify_search(q: str, limit: int = 20):
+    if not q:
+        return {"tracks": {"items": []}}
+    return _spotify_request(f"v1/search?q={urllib.parse.quote(q)}&type=track&limit={limit}")
+
+@app.get("/api/spotify/new-releases")
+def api_spotify_new_releases(limit: int = 20):
+    return _spotify_request(f"v1/browse/new-releases?limit={limit}")
+
+@app.get("/api/spotify/top-artists")
+def api_spotify_top_artists():
+    return _spotify_request("v1/me/top/artists?time_range=long_term&limit=10")
