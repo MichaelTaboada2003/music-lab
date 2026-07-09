@@ -58,6 +58,14 @@ if env_file.is_file():
             k, v = line.split("=", 1)
             os.environ[k.strip()] = v.strip()
 
+# Base URL pública del servidor: usada para construir el redirect_uri del
+# OAuth de Spotify y por el lanzador para abrir el navegador. Se puede
+# sobreescribir con la env APP_BASE_URL cuando corres en un puerto/host
+# distinto del habitual. Debe coincidir EXACTAMENTE con la Redirect URI
+# registrada en el Spotify Developer Dashboard.
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+SPOTIFY_REDIRECT_URI = f"{APP_BASE_URL}/callback"
+
 app = FastAPI(title="Music Lab")
 
 # La interfaz vive en el mismo servidor, pero se deja CORS abierto por si
@@ -369,14 +377,6 @@ def api_videos():
 
 
 # ---------------------------------------------------------------------------
-# Compatibilidad con el endpoint que usaba la interfaz anterior
-# ---------------------------------------------------------------------------
-
-@app.get("/lista_canciones")
-def lista_canciones_legacy():
-    return api_canciones()
-
-# ---------------------------------------------------------------------------
 # Spotify Integración (OAuth2)
 # ---------------------------------------------------------------------------
 
@@ -395,7 +395,7 @@ def spotify_login():
     client_id = os.environ.get("SPOTIFY_CLIENT_ID")
     if not client_id:
         raise HTTPException(500, "Falta SPOTIFY_CLIENT_ID en .env")
-    redirect_uri = "http://127.0.0.1:8000/callback"
+    redirect_uri = SPOTIFY_REDIRECT_URI
     # user-top-read: top tracks/artists (favoritas y recap).
     # playlist-read-private: leer playlists privadas del usuario.
     # playlist-read-collaborative: leer playlists colaborativas.
@@ -412,8 +412,8 @@ def spotify_login():
 def spotify_callback(code: str):
     client_id = os.environ.get("SPOTIFY_CLIENT_ID")
     client_secret = os.environ.get("SPOTIFY_CLIENT_SECRET")
-    redirect_uri = "http://127.0.0.1:8000/callback"
-    
+    redirect_uri = SPOTIFY_REDIRECT_URI
+
     data = urllib.parse.urlencode({
         "grant_type": "authorization_code",
         "code": code,
