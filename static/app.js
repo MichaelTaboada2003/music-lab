@@ -17,8 +17,8 @@ navItems.forEach((btn) => {
     document.getElementById(`view-${btn.dataset.view}`).classList.add("active");
 
     if (btn.dataset.view === "lyrics") refreshSongSelect(lyricsSongSelect, onLyricsSongChange);
-    if (btn.dataset.view === "karaoke") refreshSongSelect(karaokeSongSelect, onKaraokeSongChange);
-    if (btn.dataset.view === "video") { refreshSongSelect(videoSongSelect); loadVideoGallery(); }
+    if (btn.dataset.view === "studio") { refreshSongSelect(studioSongSelect, onStudioSongChange); loadVideoGallery(); }
+    if (btn.dataset.view === "spotify" && !discoverLoaded) { discoverLoaded = true; loadDiscover("/api/spotify/top"); }
   });
 });
 
@@ -103,11 +103,66 @@ function cargarCancion(index) {
     audioPlayer.src = "";
     currentSongTitle.textContent = "Sin canción";
     currentArtistName.textContent = "Artista";
+    loadPlayerLyrics(null);
     return;
   }
   currentSongTitle.textContent = cancion.stem;
   currentArtistName.textContent = cancion.tiene_letra ? "Letra disponible" : "Sin letra guardada";
   audioPlayer.src = `/canciones/${encodeURIComponent(cancion.nombre)}`;
+  loadPlayerLyrics(cancion);
+}
+
+/**
+ * Carga la letra del tema en el reproductor: karaoke sincronizado si existe
+ * su .sync.json, o la letra plana como respaldo si solo hay .txt.
+ */
+async function loadPlayerLyrics(cancion) {
+  karaokeData = null;
+  karaokeActiveLine = null;
+  const emptyEl = document.getElementById("npLyricsEmpty");
+  if (!cancion) {
+    karaokeStage.hidden = true;
+    emptyEl.style.display = "";
+    return;
+  }
+  try {
+    if (cancion.tiene_sync) {
+      const r = await apiGet(`/api/karaoke/${encodeURIComponent(cancion.stem)}`);
+      if (r.existe) {
+        emptyEl.style.display = "none";
+        showKaraoke(cancion.stem, r.datos);
+        return;
+      }
+    }
+    if (cancion.tiene_letra) {
+      const r = await apiGet(`/api/letra/${encodeURIComponent(cancion.stem)}`);
+      emptyEl.style.display = "none";
+      showPlainLyrics(r.texto || "");
+      return;
+    }
+    karaokeStage.hidden = true;
+    emptyEl.style.display = "";
+  } catch (e) {
+    karaokeStage.hidden = true;
+    emptyEl.style.display = "";
+  }
+}
+
+/** Muestra la letra sin sincronizar (respaldo cuando aún no hay karaoke). */
+function showPlainLyrics(texto) {
+  karaokeStage.hidden = false;
+  document.getElementById("npLyricsEmpty").style.display = "none";
+  karaokeText.classList.add("plain");
+  karaokeText.innerHTML = "";
+  const scroll = document.createElement("div");
+  scroll.className = "k-scroll k-plain";
+  texto.split("\n").forEach((line) => {
+    const div = document.createElement("div");
+    div.className = "k-line-plain";
+    div.textContent = line.trim() || "\u00A0";
+    scroll.appendChild(div);
+  });
+  karaokeText.appendChild(scroll);
 }
 
 function renderPlaylist() {
@@ -190,9 +245,11 @@ playBtn.addEventListener("click", () => {
   if (audioPlayer.paused) {
     audioPlayer.play();
     playBtn.innerHTML = pauseIcon;
+    document.getElementById("npArtwork").classList.add("playing");
   } else {
     audioPlayer.pause();
     playBtn.innerHTML = playIcon;
+    document.getElementById("npArtwork").classList.remove("playing");
   }
 });
 
@@ -255,7 +312,7 @@ function updateVisualProgress(event) {
 }
 
 // ============================================================
-// VISTA: Descargar
+// Añadir canción por URL (bloque plegable dentro del Reproductor)
 // ============================================================
 const downloadForm = document.getElementById("downloadForm");
 const downloadStatus = document.getElementById("downloadStatus");
@@ -286,8 +343,7 @@ downloadForm.addEventListener("submit", async (e) => {
 // Helper compartido: llenar selects de canciones
 // ============================================================
 const lyricsSongSelect = document.getElementById("lyricsSongSelect");
-const karaokeSongSelect = document.getElementById("karaokeSongSelect");
-const videoSongSelect = document.getElementById("videoSongSelect");
+const studioSongSelect = document.getElementById("studioSongSelect");
 
 async function refreshSongSelect(selectEl, onChange) {
   try {
@@ -338,8 +394,7 @@ lyricsSaveBtn.addEventListener("click", async () => {
   try {
     await apiPost(`/api/letra/${encodeURIComponent(stem)}`, { texto: lyricsTextarea.value });
     setStatus(lyricsStatus, "Letra guardada.", "ok");
-    refreshSongSelect(karaokeSongSelect);
-    refreshSongSelect(videoSongSelect);
+    refreshSongSelect(studioSongSelect);
   } catch (e) {
     setStatus(lyricsStatus, `Error: ${e.message}`, "error");
   } finally {
@@ -348,64 +403,88 @@ lyricsSaveBtn.addEventListener("click", async () => {
 });
 
 // ============================================================
-// VISTA: Karaoke
+// VISTA: Estudio (Karaoke + Video con sincronización compartida)
 // ============================================================
-const karaokeSyncBtn = document.getElementById("karaokeSyncBtn");
-const karaokeStatus = document.getElementById("karaokeStatus");
+const studioSyncBtn = document.getElementById("studioSyncBtn");
+const studioStatus = document.getElementById("studioStatus");
+// El escenario de karaoke vive ahora en el Reproductor; estos nodos se
+// rellenan desde loadPlayerLyrics(), no desde el Estudio.
 const karaokeStage = document.getElementById("karaokeStage");
-const karaokeAudio = document.getElementById("karaokeAudio");
 const karaokeText = document.getElementById("karaokeText");
 let karaokeData = null;
 
-async function onKaraokeSongChange() {
-  const stem = karaokeSongSelect.value;
+/** Opciones de sincronización para el video (quedan cacheadas y sirven
+    también para el karaoke del reproductor). */
+function studioSyncOptions() {
+  return {
+    language: document.getElementById("studioLanguage").value.trim() || "es",
+    model: document.getElementById("studioModel").value,
+    force: document.getElementById("studioForce").checked,
+    separate_vocals: document.getElementById("studioSeparate").checked,
+    vad: document.getElementById("studioVad").checked ? "auditok" : "none",
+  };
+}
+
+/** Tras sincronizar solo actualizamos el selector de fragmento del video;
+    el karaoke del reproductor se refresca al reproducir la canción. */
+function applyStudioSync(stem, data) {
+  renderStanzaPicker(data.stanzas);
+}
+
+async function onStudioSongChange() {
+  const stem = studioSongSelect.value;
   if (!stem) return;
-  karaokeStage.hidden = true;
+  // Reset del selector de fragmento al cambiar de canción.
+  stanzaPicker.innerHTML = "";
+  fragStartInput.value = "";
+  fragEndInput.value = "";
+  fragPreviewAudio.hidden = true;
+  videoStanzas = null;
+
   try {
     const data = await apiGet(`/api/karaoke/${encodeURIComponent(stem)}`);
     if (data.existe) {
-      setStatus(karaokeStatus, "Ya existe una sincronización guardada. Puedes reproducirla o forzar una nueva.");
-      showKaraoke(stem, data.datos);
+      setStatus(studioStatus, "Ya existe una sincronización. Puedes usarla o re-sincronizar.");
+      applyStudioSync(stem, data.datos);
     } else {
-      setStatus(karaokeStatus, "Esta canción aún no está sincronizada. Pulsa 'Sincronizar'.");
+      setStatus(studioStatus, "Esta canción aún no está sincronizada. Pulsa 'Sincronizar'.");
     }
   } catch (e) {
-    setStatus(karaokeStatus, `Error: ${e.message}`, "error");
+    setStatus(studioStatus, `Error: ${e.message}`, "error");
   }
 }
 
-karaokeSongSelect.addEventListener("change", onKaraokeSongChange);
+studioSongSelect.addEventListener("change", onStudioSongChange);
 
-karaokeSyncBtn.addEventListener("click", async () => {
-  const stem = karaokeSongSelect.value;
+studioSyncBtn.addEventListener("click", async () => {
+  const stem = studioSongSelect.value;
   if (!stem) return;
-  const language = document.getElementById("karaokeLanguage").value.trim() || "es";
-  const model = document.getElementById("karaokeModel").value;
-  const force = document.getElementById("karaokeForce").checked;
-  const separate_vocals = document.getElementById("karaokeSeparate").checked;
-  const vad = document.getElementById("karaokeVad").checked ? "auditok" : "none";
-
-  karaokeSyncBtn.disabled = true;
-  setStatus(karaokeStatus, "Sincronizando... si aíslas la voz, la primera vez puede tardar un par de minutos.");
+  studioSyncBtn.disabled = true;
+  setStatus(studioStatus, "Sincronizando... si aíslas la voz, la primera vez puede tardar un par de minutos.");
 
   try {
-    const { job_id } = await apiPost(`/api/sincronizar/${encodeURIComponent(stem)}`, { language, model, force, separate_vocals, vad });
+    const { job_id } = await apiPost(`/api/sincronizar/${encodeURIComponent(stem)}`, studioSyncOptions());
     pollJob(job_id, {
       onDone: (result) => {
-        setStatus(karaokeStatus, "Sincronización lista.", "ok");
-        showKaraoke(stem, result);
-        karaokeSyncBtn.disabled = false;
-        refreshSongSelect(karaokeSongSelect);
-        refreshSongSelect(videoSongSelect);
+        setStatus(studioStatus, "Sincronización lista.", "ok");
+        applyStudioSync(stem, result);
+        studioSyncBtn.disabled = false;
+        refreshSongSelect(studioSongSelect);
+        // Si el tema sincronizado es el que suena, refrescar su karaoke.
+        const actual = canciones[indiceActual];
+        if (actual && actual.stem === stem) {
+          actual.tiene_sync = true;
+          showKaraoke(stem, result);
+        }
       },
       onError: (err) => {
-        setStatus(karaokeStatus, `Error: ${err}`, "error");
-        karaokeSyncBtn.disabled = false;
+        setStatus(studioStatus, `Error: ${err}`, "error");
+        studioSyncBtn.disabled = false;
       },
     });
   } catch (e) {
-    setStatus(karaokeStatus, `Error: ${e.message}`, "error");
-    karaokeSyncBtn.disabled = false;
+    setStatus(studioStatus, `Error: ${e.message}`, "error");
+    studioSyncBtn.disabled = false;
   }
 });
 
@@ -416,8 +495,7 @@ function showKaraoke(stem, data) {
   karaokeData = data;
   karaokeActiveLine = null;
   karaokeStage.hidden = false;
-  const song = canciones.find((c) => c.stem === stem);
-  karaokeAudio.src = `/canciones/${encodeURIComponent(song ? song.nombre : stem + ".mp3")}`;
+  karaokeText.classList.remove("plain");
 
   // Estructura: karaokeText (ventana con máscara) > .k-scroll (se desplaza)
   // > .k-stanza > .k-line > .k-word. Cada palabra guarda sus tiempos para
@@ -481,7 +559,7 @@ function updateKaraoke() {
   if (!karaokeData) return;
   const scroll = karaokeText.querySelector(".k-scroll");
   if (!scroll) return;
-  const t = karaokeAudio.currentTime;
+  const t = audioPlayer.currentTime;
   const lines = karaokeText.querySelectorAll(".k-line");
 
   // La línea activa es la última cuya primera palabra ya empezó a sonar
@@ -490,6 +568,9 @@ function updateKaraoke() {
   lines.forEach((line) => {
     if (parseFloat(line.dataset.start) <= t) active = line;
   });
+  // Antes de que empiece la primera línea (o en pausa con t=0) resaltamos la
+  // primera para que la letra sea visible desde el inicio, no toda borrosa.
+  if (!active && lines.length) active = lines[0];
 
   lines.forEach((line) => {
     const end = parseFloat(line.dataset.end);
@@ -530,19 +611,19 @@ function _stopKaraokeLoop() {
     karaokeRAF = null;
   }
 }
-karaokeAudio.addEventListener("play", () => { if (!karaokeRAF) _karaokeLoop(); });
-karaokeAudio.addEventListener("pause", _stopKaraokeLoop);
-karaokeAudio.addEventListener("ended", _stopKaraokeLoop);
-karaokeAudio.addEventListener("seeked", updateKaraoke);
-karaokeAudio.addEventListener("timeupdate", () => { if (!karaokeRAF) updateKaraoke(); });
+audioPlayer.addEventListener("play", () => { if (!karaokeRAF) _karaokeLoop(); });
+audioPlayer.addEventListener("pause", _stopKaraokeLoop);
+audioPlayer.addEventListener("ended", _stopKaraokeLoop);
+audioPlayer.addEventListener("seeked", updateKaraoke);
+audioPlayer.addEventListener("timeupdate", () => { if (!karaokeRAF) updateKaraoke(); });
 
 // ============================================================
-// VISTA: Video TikTok
+// Panel Video: selector de fragmento + generación
+// (la sincronización la comparte el Estudio, ver arriba)
 // ============================================================
 const videoGenerateBtn = document.getElementById("videoGenerateBtn");
 const videoStatus = document.getElementById("videoStatus");
 const videoGallery = document.getElementById("videoGallery");
-const videoLoadStanzasBtn = document.getElementById("videoLoadStanzasBtn");
 const stanzaPicker = document.getElementById("stanzaPicker");
 const fragStartInput = document.getElementById("fragStart");
 const fragEndInput = document.getElementById("fragEnd");
@@ -550,57 +631,6 @@ const fragPreviewBtn = document.getElementById("fragPreviewBtn");
 const fragPreviewAudio = document.getElementById("fragPreviewAudio");
 
 let videoStanzas = null; // estrofas de la última sincronización cargada
-
-videoSongSelect.addEventListener("change", () => {
-  videoStanzas = null;
-  stanzaPicker.innerHTML = "";
-  fragStartInput.value = "";
-  fragEndInput.value = "";
-  fragPreviewAudio.hidden = true;
-});
-
-// ---- Cargar / sincronizar estrofas para elegir el fragmento (ej. coro) ----
-videoLoadStanzasBtn.addEventListener("click", async () => {
-  const stem = videoSongSelect.value;
-  if (!stem) return;
-  const language = document.getElementById("videoLanguage").value.trim() || "es";
-  const model = document.getElementById("videoModel").value;
-  const force = document.getElementById("videoForce").checked;
-  const separate_vocals = document.getElementById("videoSeparate").checked;
-  const vad = document.getElementById("videoVad").checked ? "auditok" : "none";
-
-  videoLoadStanzasBtn.disabled = true;
-
-  try {
-    // Si ya existe una sincronización y no se pide forzar, la reutilizamos
-    // directamente sin lanzar un job en background.
-    if (!force) {
-      const cached = await apiGet(`/api/karaoke/${encodeURIComponent(stem)}`);
-      if (cached.existe) {
-        renderStanzaPicker(cached.datos.stanzas);
-        videoLoadStanzasBtn.disabled = false;
-        return;
-      }
-    }
-
-    setStatus(videoStatus, "Sincronizando para detectar las estrofas... la primera vez puede tardar un par de minutos.");
-    const { job_id } = await apiPost(`/api/sincronizar/${encodeURIComponent(stem)}`, { language, model, force, separate_vocals, vad });
-    pollJob(job_id, {
-      onDone: (result) => {
-        setStatus(videoStatus, "Estrofas cargadas.", "ok");
-        renderStanzaPicker(result.stanzas);
-        videoLoadStanzasBtn.disabled = false;
-      },
-      onError: (err) => {
-        setStatus(videoStatus, `Error: ${err}`, "error");
-        videoLoadStanzasBtn.disabled = false;
-      },
-    });
-  } catch (e) {
-    setStatus(videoStatus, `Error: ${e.message}`, "error");
-    videoLoadStanzasBtn.disabled = false;
-  }
-});
 
 function renderStanzaPicker(stanzas) {
   videoStanzas = stanzas;
@@ -638,7 +668,7 @@ function formatSeconds(s) {
 let fragStopHandler = null;
 
 fragPreviewBtn.addEventListener("click", () => {
-  const stem = videoSongSelect.value;
+  const stem = studioSongSelect.value;
   if (!stem) return;
   const song = canciones.find((c) => c.stem === stem);
   if (!song) return;
@@ -670,26 +700,23 @@ fragPreviewBtn.addEventListener("click", () => {
 
 // ---- Generar el video con el fragmento (o la canción completa) elegido ----
 videoGenerateBtn.addEventListener("click", async () => {
-  const stem = videoSongSelect.value;
+  const stem = studioSongSelect.value;
   if (!stem) return;
-  const language = document.getElementById("videoLanguage").value.trim() || "es";
-  const model = document.getElementById("videoModel").value;
-  const force_sync = document.getElementById("videoForce").checked;
+  const opts = studioSyncOptions();
   const nombre_salida = document.getElementById("videoOutputName").value.trim() || null;
   const titulo = document.getElementById("videoTitulo").value.trim() || null;
   const artista = document.getElementById("videoArtista").value.trim() || null;
   const start_time = fragStartInput.value !== "" ? parseFloat(fragStartInput.value) : null;
   const end_time = fragEndInput.value !== "" ? parseFloat(fragEndInput.value) : null;
-  const separate_vocals = document.getElementById("videoSeparate").checked;
-  const vad = document.getElementById("videoVad").checked ? "auditok" : "none";
 
   videoGenerateBtn.disabled = true;
   setStatus(videoStatus, "Generando video... esto puede tardar varios minutos.");
 
   try {
     const { job_id } = await apiPost(`/api/video/${encodeURIComponent(stem)}`, {
-      language, model, force_sync, nombre_salida, titulo, artista, start_time, end_time,
-      separate_vocals, vad,
+      language: opts.language, model: opts.model, force_sync: opts.force,
+      nombre_salida, titulo, artista, start_time, end_time,
+      separate_vocals: opts.separate_vocals, vad: opts.vad,
     });
     pollJob(job_id, {
       onDone: (result) => {
@@ -730,6 +757,189 @@ async function loadVideoGallery() {
 // Arranque
 // ============================================================
 cargarListaCanciones();
+
+// ============================================================
+// VISTA: Descubrir (Spotify → traer canciones al Lab)
+// ============================================================
+const spotifyGrid = document.getElementById("spotifyGrid");
+const spotifyStatus = document.getElementById("spotifyStatus");
+const discoverTabs = document.querySelectorAll(".discover-tab");
+const discoverSearch = document.getElementById("discoverSearch");
+const discoverSearchInput = document.getElementById("discoverSearchInput");
+const discoverSearchBtn = document.getElementById("discoverSearchBtn");
+let discoverLoaded = false;
+
+let currentAudioPreview = null;
+let currentPreviewBtn = null;
+
+function playPreview(url, btnElement) {
+  if (currentAudioPreview) {
+    currentAudioPreview.pause();
+    if (currentPreviewBtn) currentPreviewBtn.classList.remove("playing");
+  }
+  if (!url) return;
+  
+  if (currentPreviewBtn === btnElement) {
+    currentPreviewBtn = null;
+    currentAudioPreview = null;
+    return;
+  }
+  
+  currentAudioPreview = new Audio(url);
+  currentAudioPreview.volume = 0.5;
+  currentPreviewBtn = btnElement;
+  currentPreviewBtn.classList.add("playing");
+  
+  currentAudioPreview.play().catch(e => console.error("Error preview", e));
+  
+  currentAudioPreview.onended = () => {
+    if (currentPreviewBtn) currentPreviewBtn.classList.remove("playing");
+    currentPreviewBtn = null;
+    currentAudioPreview = null;
+  };
+}
+
+/** Normaliza la respuesta de Spotify (top / búsqueda / novedades) a una
+    lista uniforme de tracks. */
+function normalizeTracks(res) {
+  if (res.tracks && res.tracks.items) return res.tracks.items;
+  if (res.albums && res.albums.items) {
+    return res.albums.items.map((a) => ({
+      id: a.id, name: a.name, artists: a.artists,
+      album: { images: a.images }, preview_url: null,
+    }));
+  }
+  if (res.items) return res.items;
+  return [];
+}
+
+/** Coincidencia laxa: ¿ya hay una canción parecida en la biblioteca local? */
+function isInLibrary(title) {
+  const t = (title || "").trim().toLowerCase();
+  if (!t) return false;
+  return canciones.some((c) => {
+    const s = c.stem.toLowerCase();
+    return s.includes(t) || t.includes(s);
+  });
+}
+
+/** Descarga la canción al Lab vía búsqueda en YouTube. */
+async function downloadFromSpotify(btn, title, artists) {
+  btn.disabled = true;
+  btn.textContent = "Descargando…";
+  try {
+    await apiPost("/api/descargar", { url: `ytsearch:${title} ${artists} audio` });
+    btn.textContent = "✓ En tu biblioteca";
+    btn.classList.add("in-lib");
+    cargarListaCanciones();
+    refreshSongSelect(studioSongSelect);
+  } catch (e) {
+    btn.textContent = "Error, reintentar";
+    btn.disabled = false;
+  }
+}
+
+function renderSpotifyCards(tracks) {
+  spotifyStatus.className = "status-box";
+  spotifyStatus.textContent = "";
+  if (!tracks || tracks.length === 0) {
+    spotifyGrid.innerHTML = "";
+    setStatus(spotifyStatus, "No se encontraron resultados.");
+    return;
+  }
+
+  const playSvg = `<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg>`;
+
+  spotifyGrid.innerHTML = "";
+  tracks.forEach((track) => {
+    const imgUrl = track.album?.images?.[0]?.url || "";
+    const artists = (track.artists || []).map((a) => a.name).join(", ");
+    const title = track.name || "";
+    const previewUrl = track.preview_url;
+    const inLib = isInLibrary(title);
+
+    const card = document.createElement("div");
+    card.className = "spotify-card";
+    card.innerHTML = `
+      <div class="spotify-img-container">
+        ${imgUrl ? `<img src="${imgUrl}" class="spotify-img" alt="">` : ""}
+        ${previewUrl ? `<div class="spotify-preview-overlay"><button class="spotify-preview-btn" title="Adelanto">${playSvg}</button></div>` : ""}
+      </div>
+      <div class="spotify-title" title="${title}">${title}</div>
+      <div class="spotify-artist" title="${artists}">${artists}</div>
+      <button class="btn-download-spotify${inLib ? " in-lib" : ""}">${inLib ? "✓ En tu biblioteca" : "⬇ Descargar al Lab"}</button>
+    `;
+
+    const previewBtn = card.querySelector(".spotify-preview-btn");
+    if (previewBtn) previewBtn.addEventListener("click", () => playPreview(previewUrl, previewBtn));
+
+    const btn = card.querySelector(".btn-download-spotify");
+    if (inLib) {
+      btn.disabled = true;
+    } else {
+      btn.addEventListener("click", () => downloadFromSpotify(btn, title, artists));
+    }
+
+    spotifyGrid.appendChild(card);
+  });
+}
+
+function showSpotifyLogin() {
+  spotifyGrid.innerHTML = "";
+  spotifyStatus.className = "status-box";
+  spotifyStatus.innerHTML = `
+    <div class="spotify-login-box">
+      <p>Conecta tu cuenta de Spotify para ver tus favoritas y novedades.</p>
+      <button class="btn-spotify-login" onclick="window.location.href='/api/spotify/login'">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="vertical-align:middle; margin-right:8px; margin-top:-2px"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.207-2.35-1.434-5.305-1.76-8.786-.963-.335.077-.67-.133-.746-.468-.077-.334.132-.67.467-.746 3.816-.874 7.058-.496 9.715 1.122.295.18.388.563.207.848zm1.22-3.237c-.226.368-.706.485-1.072.26-2.687-1.65-6.785-2.13-9.965-1.166-.413.125-.845-.108-.97-.52-.125-.413.108-.844.52-.97 3.66-1.11 8.24-.57 11.226 1.264.367.225.485.705.26 1.072zm.106-3.41c-3.21-1.905-8.5-2.08-11.562-1.15-.49.148-.99-.126-1.138-.616-.148-.49.125-.99.615-1.137 3.51-.97 9.38-.767 13.06 1.417.44.26.582.846.32 1.286-.26.44-.847.582-1.295.32z"></path></svg>
+        Iniciar sesión con Spotify
+      </button>
+    </div>`;
+}
+
+async function loadDiscover(endpoint) {
+  spotifyGrid.innerHTML = "";
+  setStatus(spotifyStatus, "Conectando con Spotify…");
+  try {
+    const res = await apiGet(endpoint);
+    renderSpotifyCards(normalizeTracks(res));
+  } catch (err) {
+    if (/401|iniciado sesión|expirada/i.test(err.message)) {
+      showSpotifyLogin();
+    } else {
+      setStatus(spotifyStatus, `Error: ${err.message}`, "error");
+    }
+  }
+}
+
+// Pestañas de Descubrir: favoritas / novedades / buscar.
+discoverTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    discoverTabs.forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    const src = tab.dataset.src;
+    if (src === "search") {
+      discoverSearch.hidden = false;
+      spotifyGrid.innerHTML = "";
+      spotifyStatus.textContent = "";
+      discoverSearchInput.focus();
+    } else {
+      discoverSearch.hidden = true;
+      if (src === "top") loadDiscover("/api/spotify/top");
+      if (src === "new") loadDiscover("/api/spotify/new-releases");
+    }
+  });
+});
+
+function doDiscoverSearch() {
+  const q = discoverSearchInput.value.trim();
+  if (q) loadDiscover(`/api/spotify/search?q=${encodeURIComponent(q)}`);
+}
+discoverSearchBtn.addEventListener("click", doDiscoverSearch);
+discoverSearchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") doDiscoverSearch();
+});
+
 
 // ============================================================
 // Web Audio API & Ambient Mode (Canvas Visualizer)
@@ -823,6 +1033,6 @@ function drawVisualizer() {
 playBtn.addEventListener("click", () => {
   initAudioVisualizer();
 }, { once: true });
-karaokeAudio.addEventListener("play", () => {
-  if(audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+audioPlayer.addEventListener("play", () => {
+  if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
 });
