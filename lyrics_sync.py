@@ -286,7 +286,7 @@ def align_lyrics_to_audio(
             _pc("Usando sincronización cacheada", 100)
             return cached
 
-    _pc("Preparando letra", None)
+    _pc("Preparando letra", 5)
     stanzas_raw = parse_lyrics_file(lyrics_path)
 
     lyrics_tokens = []
@@ -305,7 +305,7 @@ def align_lyrics_to_audio(
     # Audio que se usará para transcribir: por defecto, la voz aislada.
     transcribe_audio = audio_path
     if separate_vocals:
-        _pc("Aislando voz (Demucs)", None)
+        _pc("Aislando voz (Demucs)", 20)
         try:
             from vocal_separator import separate_vocals as _separate
             transcribe_audio = str(_separate(audio_path))
@@ -313,7 +313,7 @@ def align_lyrics_to_audio(
             print(f"Aviso: no se pudo aislar la voz ({e}). Se usará el audio completo.")
             transcribe_audio = audio_path
 
-    _pc("Transcribiendo audio (Whisper)", None)
+    _pc("Transcribiendo audio (Whisper)", 55)
     transcription, duration = _transcribe(transcribe_audio, language, model_name, vad=vad)
 
     whisper_words = []
@@ -324,7 +324,7 @@ def align_lyrics_to_audio(
                 whisper_words.append((norm, w["start"], w["end"]))
     whisper_tokens = [w[0] for w in whisper_words]
 
-    _pc("Alineando letra con audio", None)
+    _pc("Alineando letra con audio", 90)
     lyric_word_times = [None] * len(lyrics_tokens)
     sm = difflib.SequenceMatcher(a=whisper_tokens, b=lyrics_tokens, autojunk=False)
     for block in sm.get_matching_blocks():

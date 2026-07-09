@@ -228,7 +228,7 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
                 pass
 
     # 1. Resolver el audio (si es URL, se descarga primero como mp3).
-    _pc("Preparando audio", None)
+    _pc("Preparando audio", 2)
     audio_path = resolve_audio_source(audio_source, output_dir=Path(lyrics_path).parent)
 
     # 2. Alinear la letra real del .txt con el tiempo real del audio.
