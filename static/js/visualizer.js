@@ -112,9 +112,9 @@ function drawVisualizer() {
   ctx.globalCompositeOperation = "source-over";
 }
 
-// Inicializar en el primer clic a Play (política del navegador: AudioContext
+// Inicializar en el primer clic en la página (política del navegador: AudioContext
 // requiere gesto del usuario antes de poder crear nodos de audio).
-playBtn.addEventListener("click", initAudioVisualizer, { once: true });
+document.body.addEventListener("click", initAudioVisualizer, { once: true });
 audioPlayer.addEventListener("play", () => {
   if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
 });
