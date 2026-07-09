@@ -12,6 +12,7 @@ import { init as initKaraoke } from "./karaoke.js";
 import { audioPlayer, cargarListaCanciones } from "./player.js";
 import { activateFromHash } from "./nav.js";
 import { apiPost, setStatus } from "./api.js";
+import { enhanceSelect } from "./dropdown.js";
 
 // Módulos con efectos laterales: registran listeners al ser evaluados.
 import "./lyrics.js";
@@ -25,6 +26,14 @@ import "./visualizer.js";
 const karaokeStage = document.getElementById("karaokeStage");
 const karaokeText  = document.getElementById("karaokeText");
 initKaraoke(audioPlayer, karaokeStage, karaokeText);
+
+// Mejorar los <select> del sistema para que coincidan con el diseño.
+[
+  document.getElementById("lyricsSongSelect"),
+  document.getElementById("studioSongSelect"),
+  document.getElementById("studioLanguage"),
+  document.getElementById("studioModel"),
+].forEach(enhanceSelect);
 
 // Cargar biblioteca de canciones y renderizar la playlist.
 cargarListaCanciones();

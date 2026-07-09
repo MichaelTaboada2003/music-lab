@@ -258,8 +258,154 @@ h2 {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-/* Botón primario */
-.form-card button,
+/* ---- Selects: chevron custom + hover elegante ------------------------------
+   El <select> nativo trae un chevron feo del OS (sobre todo en macOS).
+   appearance:none lo elimina y ponemos un SVG inline como background-image.
+   El SVG usa currentColor a través de stroke='%23xxx' escapado (data URI). */
+.form-card select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 40px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239b9ba4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px 16px;
+}
+
+.form-card select:hover {
+  border-color: var(--border-strong);
+  background-color: var(--bg-elev-3);
+}
+
+.form-card select:focus {
+  /* En foco cambiamos el chevron al color de acento para reforzar el estado. */
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231ed760' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+/* ---- Dropdown custom (reemplaza <select> nativo) --------------------------
+   Los <option> son un widget del OS, imposibles de estilar de forma
+   consistente. dropdown.js oculta el <select> y superpone este componente.
+   El <select> sigue vivo detrás para su .value y su evento 'change'. */
+.select-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.select-custom {
+  position: relative;
+  width: 100%;
+}
+
+.select-button {
+  position: relative;
+  width: 100%;
+  text-align: left;
+  padding: 11px 40px 11px 13px;
+  background-color: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: border-color var(--t-fast), background-color var(--t-fast), box-shadow var(--t-fast);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Chevron via ::after — un solo SVG, sin data URIs con transform inline
+   (esos provocaban tiling en algunos navegadores). Se rota al abrir. */
+.select-button::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  background: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239b9ba4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") no-repeat center / 16px 16px;
+  transition: transform var(--t-fast);
+  pointer-events: none;
+}
+
+.select-button:hover {
+  border-color: var(--border-strong);
+  background-color: var(--bg-elev-3);
+}
+
+/* Al abrir: borde de acento + chevron rotado 180º y en verde. */
+.select-custom.open .select-button {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.select-custom.open .select-button::after {
+  transform: translateY(-50%) rotate(180deg);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231ed760' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+.select-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background: linear-gradient(180deg, var(--bg-elev-2), var(--bg-elev-1));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  box-shadow: var(--shadow);
+  animation: selectPanelIn 0.15s ease;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-elev-3) transparent;
+}
+
+.select-panel::-webkit-scrollbar { width: 6px; }
+.select-panel::-webkit-scrollbar-thumb {
+  background: var(--bg-elev-3);
+  border-radius: var(--radius-pill);
+}
+
+@keyframes selectPanelIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.select-item {
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background-color var(--t-fast), color var(--t-fast);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.select-item:hover,
+.select-item.hover {
+  background-color: var(--bg-elev-3);
+}
+
+.select-item.selected {
+  background-color: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Botón primario. Excluimos los botones del dropdown custom (.select-button)
+   y los "ghost" para que no hereden el look verde de accion primaria. */
+.form-card button:not(.select-button):not(.btn-ghost),
 #videoGenerateBtn {
   margin-top: 20px;
   align-self: flex-start;
@@ -274,19 +420,19 @@ h2 {
   transition: transform var(--t-fast), box-shadow var(--t-fast), filter var(--t-fast);
 }
 
-.form-card button:hover,
+.form-card button:not(.select-button):not(.btn-ghost):hover,
 #videoGenerateBtn:hover {
   transform: translateY(-1px);
   box-shadow: 0 8px 22px var(--accent-glow);
   filter: brightness(1.05);
 }
 
-.form-card button:active,
+.form-card button:not(.select-button):not(.btn-ghost):active,
 #videoGenerateBtn:active {
   transform: translateY(0);
 }
 
-.form-card button:disabled {
+.form-card button:not(.select-button):not(.btn-ghost):disabled {
   opacity: 0.45;
   cursor: not-allowed;
   transform: none;
@@ -335,6 +481,12 @@ h2 {
   flex: 1;
   min-width: 140px;
 }
+
+/* Modificador para filas donde el primer campo es una etiqueta corta
+   (ej. Idioma "es"/"en") y el segundo necesita todo el ancho posible
+   (ej. Modelo Whisper con opciones descriptivas). */
+.inline-fields.sync-fields .field-narrow { flex: 0 0 160px; min-width: 160px; }
+.inline-fields.sync-fields .field-wide   { flex: 1 1 auto; }
 
 .checkbox-field {
   display: flex;
