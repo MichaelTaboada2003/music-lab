@@ -237,10 +237,16 @@
           <button class="discover-tab" data-src="top">Mis favoritas</button>
         </div>
 
-        <!-- Migas para volver a la lista de playlists -->
-        <div class="playlist-crumb" id="playlistCrumb" hidden>
-          <button type="button" class="btn-ghost" id="playlistBackBtn">← Volver a mis playlists</button>
-          <span id="playlistCrumbTitle"></span>
+        <!-- Header al abrir una playlist: botón "Volver" + nombre grande -->
+        <div class="playlist-header" id="playlistCrumb" hidden>
+          <button type="button" class="playlist-back" id="playlistBackBtn" title="Volver a mis playlists">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            Volver a mis playlists
+          </button>
+          <div class="playlist-header-info">
+            <div class="playlist-header-name" id="playlistCrumbTitle"></div>
+            <div class="playlist-header-meta" id="playlistCrumbMeta"></div>
+          </div>
         </div>
 
         <div id="spotifyStatus" class="status-box"></div>

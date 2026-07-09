@@ -1131,7 +1131,9 @@ h2 {
 .btn-spotify-login:hover { transform: translateY(-1px); filter: brightness(1.08); }
 
 /* ---- Recap del mes ---- */
-.recap-panel {
+/* Nota: condicionar el display al selector :not([hidden]) es clave para
+   que el atributo hidden funcione (el display: flex lo ganaba). */
+.recap-panel:not([hidden]) {
   display: flex;
   flex-direction: column;
   gap: 32px;
@@ -1220,15 +1222,49 @@ h2 {
   background: linear-gradient(135deg, var(--bg-elev-2), var(--bg-elev-3));
 }
 
-.playlist-crumb {
+/* Header cuando el usuario está viendo las canciones de una playlist:
+   botón Volver claro + nombre grande + contador de canciones.
+   :not([hidden]) para respetar el atributo hidden (mismo bug que recap). */
+.playlist-header:not([hidden]) {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 14px;
-  margin: 4px 0 16px;
+  margin: 4px 0 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
 }
 
-.playlist-crumb #playlistCrumbTitle {
-  font-size: 1.05rem;
-  font-weight: 700;
+.playlist-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  padding: 6px 4px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--t-fast);
+}
+
+.playlist-back:hover { color: var(--accent); }
+
+.playlist-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.playlist-header-name {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
   color: var(--text);
+}
+
+.playlist-header-meta {
+  font-size: 0.85rem;
+  color: var(--text-dim);
 }

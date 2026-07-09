@@ -488,10 +488,22 @@ def api_spotify_playlists(limit: int = 50):
 
 
 @app.get("/api/spotify/playlist/{playlist_id}/tracks")
-def api_spotify_playlist_tracks(playlist_id: str, limit: int = 100):
-    """Canciones de una playlist. Devolvemos solo los campos necesarios para
-    ahorrar payload y mantener la forma alineada con api_spotify_top."""
-    fields = "items(track(id,name,artists(name),album(images),preview_url))"
-    return _spotify_request(
-        f"v1/playlists/{playlist_id}/tracks?limit={limit}&fields={urllib.parse.quote(fields)}"
+def api_spotify_playlist_tracks(playlist_id: str):
+    """Canciones de una playlist. El endpoint dedicado /v1/playlists/{id}/tracks
+    devuelve 403 en apps sin extended quota mode (restricción de la Web API
+    de nov. 2024). Usamos /v1/playlists/{id} que sí incluye las canciones
+    embebidas bajo un paginador anidado (items.items[].item), y las
+    aplanamos al shape uniforme {items: [{track: ...}]} que espera el
+    frontend."""
+    # Pedimos también items.total porque /me/playlists devuelve tracks:null
+    # y necesitamos el conteo real para mostrarlo en la UI.
+    fields = "items(total,items(item(id,name,artists(name),album(images),preview_url)))"
+    res = _spotify_request(
+        f"v1/playlists/{playlist_id}?fields={urllib.parse.quote(fields)}"
     )
+    paginator = res.get("items") or {}
+    inner = paginator.get("items") or []
+    return {
+        "total": paginator.get("total") if paginator.get("total") is not None else len(inner),
+        "items": [{"track": entry.get("item")} for entry in inner if entry.get("item")],
+    }

@@ -955,7 +955,10 @@ async function loadPlaylists() {
 
 function renderPlaylistCard(pl) {
   const img = pl.images?.[0]?.url || "";
-  const count = pl.tracks?.total ?? 0;
+  // /me/playlists devuelve tracks:null, así que en la lista no mostramos
+  // conteo (sería siempre 0); mostramos al dueño y el conteo real aparece
+  // en el header al entrar en la playlist.
+  const owner = pl.owner?.display_name || "";
   const card = document.createElement("div");
   card.className = "spotify-card playlist-card";
   card.innerHTML = `
@@ -963,7 +966,7 @@ function renderPlaylistCard(pl) {
       ${img ? `<img src="${img}" class="spotify-img" alt="">` : `<div class="playlist-cover-fallback"></div>`}
     </div>
     <div class="spotify-title" title="${pl.name}">${pl.name}</div>
-    <div class="spotify-artist">${count} ${count === 1 ? "canción" : "canciones"}</div>
+    <div class="spotify-artist">${owner ? "por " + owner : ""}</div>
   `;
   card.addEventListener("click", () => openPlaylist(pl));
   return card;
@@ -971,15 +974,27 @@ function renderPlaylistCard(pl) {
 
 async function openPlaylist(pl) {
   _resetDiscoverPanels();
+  // Ocultar tabs para reforzar que estamos en una sub-vista.
+  document.querySelector(".discover-tabs").style.display = "none";
   playlistCrumb.hidden = false;
   playlistCrumbTitle.textContent = pl.name;
-  setStatus(spotifyStatus, `Cargando canciones de "${pl.name}"…`);
+  const meta = document.getElementById("playlistCrumbMeta");
+  // El conteo real llega solo al pedir la playlist (más abajo). Mostramos
+  // "…" mientras carga para no mentir con "0 canciones".
+  meta.textContent = pl.owner?.display_name ? `por ${pl.owner.display_name}` : "";
+
+  setStatus(spotifyStatus, "Cargando canciones…");
   await _withSpotifyAuth(async () => {
-    const res = await apiGet(`/api/spotify/playlist/${pl.id}/tracks?limit=100`);
-    // /playlists/{id}/tracks devuelve items[{ track: {...} }]; aplanamos.
+    const res = await apiGet(`/api/spotify/playlist/${pl.id}/tracks`);
+    // El backend ya aplana al shape uniforme {items: [{track: ...}], total}.
     const tracks = (res.items || [])
       .map((it) => it.track)
       .filter((t) => t && t.id);
+    const total = res.total ?? tracks.length;
+    // Actualizamos el header con el conteo real.
+    meta.textContent =
+      `${total} ${total === 1 ? "canción" : "canciones"}` +
+      (pl.owner?.display_name ? ` · por ${pl.owner.display_name}` : "");
     if (!tracks.length) {
       setStatus(spotifyStatus, "Esta playlist está vacía.");
       return;
@@ -989,7 +1004,10 @@ async function openPlaylist(pl) {
   });
 }
 
-playlistBackBtn.addEventListener("click", loadPlaylists);
+playlistBackBtn.addEventListener("click", () => {
+  document.querySelector(".discover-tabs").style.display = "";
+  loadPlaylists();
+});
 
 // ---- Mis favoritas (top de siempre) ----
 async function loadFavorites() {
@@ -1046,6 +1064,8 @@ function renderCardsInto(container, tracks) {
 // Cableado de pestañas
 discoverTabs.forEach((tab) => {
   tab.addEventListener("click", () => {
+    // Si veníamos de abrir una playlist, restauramos la barra de pestañas.
+    document.querySelector(".discover-tabs").style.display = "";
     discoverTabs.forEach((t) => t.classList.remove("active"));
     tab.classList.add("active");
     const src = tab.dataset.src;
