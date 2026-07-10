@@ -411,7 +411,7 @@ h2 {
   color: #04140a;
   font-weight: 700;
   font-size: 0.9rem;
-  border: none;
+  border: 1px solid transparent;
   border-radius: var(--radius-pill);
   padding: 11px 26px;
   cursor: pointer;
@@ -718,20 +718,11 @@ h2 {
 #studioSyncBtn, #studioListenVocalsBtn {
   margin-top: 0;
   align-self: auto;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
 }
 
 #studioListenVocalsBtn {
-  padding: 0 26px;
+  padding: 11px 26px;
   font-size: 0.9rem;
-}
-
-#studioSyncBtn {
-  padding: 0 26px;
 }
 
 /* Fila de acciones del fragmento: dos botones ghost lado a lado. */
@@ -744,12 +735,9 @@ h2 {
 
 #fragPreviewBtn, #videoGenerateBtn {
   width: 180px;
-  height: 44px;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  padding: 11px 26px;
   font-size: 0.9rem;
+  text-align: center;
   box-sizing: border-box;
 }
 
