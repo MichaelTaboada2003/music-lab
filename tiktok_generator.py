@@ -96,14 +96,7 @@ def _text_width(draw, text, font):
 
 
 def _fit_lyric_font(draw, stanza, max_width):
-    """Elige el tamaño de fuente más grande (dentro de un rango) con el que
-    la línea más larga de la estrofa cabe en el ancho disponible."""
-    longest = max((line["text"] for line in stanza), key=len, default="")
-    for size in range(60, 26, -2):
-        font = _load_font(_FONT_MONO_BOLD, size)
-        if _text_width(draw, longest + " ", font) <= max_width:
-            return font, size
-    return _load_font(_FONT_MONO_BOLD, 28), 28
+    pass # Ya no se usa, el texto ahora hace wrap automático
 
 
 def _active_stanza(stanzas, current_time):
@@ -168,29 +161,40 @@ def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
     if not stanza:
         return np.array(img)
 
-    # Ajustar tamaño de fuente para que la línea más larga entre en pantalla.
-    font_lyric, lyric_size = _fit_lyric_font(draw, stanza, width - 2 * MARGIN_X)
-    line_height = int(lyric_size * 1.9)
-    n_lines = len(stanza)
+    font_lyric = fonts.get("lyric")
+    lyric_size = font_lyric.size
+    line_height = int(lyric_size * 1.7)
+    max_w = width - 2 * MARGIN_X
+    space_w = _text_width(draw, " ", font_lyric)
+
+    # Pre-envolver las líneas largas
+    wrapped_lines = []
+    for line in stanza:
+        words = line["words"] or [{"text": line["text"], "start": line["start"], "end": line["end"]}]
+        current_segment = []
+        current_w = 0
+        for word in words:
+            w_w = _text_width(draw, word["text"], font_lyric)
+            if current_segment and current_w + space_w + w_w > max_w:
+                wrapped_lines.append((current_segment, current_w))
+                current_segment = [word]
+                current_w = w_w
+            else:
+                current_w += (space_w + w_w) if current_segment else w_w
+                current_segment.append(word)
+        if current_segment:
+            wrapped_lines.append((current_segment, current_w))
+
+    n_lines = len(wrapped_lines)
     block_height = n_lines * line_height
     y_cursor = (height - block_height) / 2 + 40
+    cursor_pos = None
 
-    space_w = _text_width(draw, " ", font_lyric)
-    cursor_pos = None  # (x, y) donde va el cursor de escritura
-
-    for line in stanza:
-        full_text = line["text"]
-        full_width = _text_width(draw, full_text, font_lyric)
-        x_start = (width - full_width) / 2
-        x = x_start
-
-        words = line["words"] or [{"text": full_text, "start": line["start"], "end": line["end"]}]
-        for word in words:
+    for seg_words, seg_w in wrapped_lines:
+        x = (width - seg_w) / 2
+        for word in seg_words:
             wtext = word["text"]
             w_width = _text_width(draw, wtext, font_lyric)
-            # Se dibuja solo si el audio ya llegó a esa palabra (revelado
-            # progresivo idéntico al de la terminal). Las que aún no suenan
-            # no se dibujan, pero el cursor avanza para mantener el centrado.
             if current_time >= word["start"]:
                 draw.text((x, y_cursor), wtext, font=font_lyric, fill=COLOR_LYRIC)
                 cursor_pos = (x + w_width + 4, y_cursor)
@@ -212,6 +216,7 @@ def _build_fonts():
         "bar": _load_font(_FONT_MONO, 26),
         "title": _load_font(_FONT_MONO_BOLD, 52),
         "artist": _load_font(_FONT_MONO, 36),
+        "lyric": _load_font(_FONT_MONO_BOLD, 44),
     }
 
 
