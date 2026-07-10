@@ -24,6 +24,25 @@ Cuenta con una interfaz de usuario hiper-premium basada en "Glassmorphism", un v
 *   **MoviePy, PIL & NumPy:** Manipulación de video, dibujo (draw) en frames, y Transformada Rápida de Fourier (FFT) para el espectro de audio.
 *   **Demucs (Opcional):** Para separar instrumentales de voces puras y sincronizar mejor el karaoke.
 
+## 🧠 ¿Cómo funciona la sincronización con IA?
+
+Uno de los mayores retos al crear videos tipo "Karaoke" o "Lyrics" es saber exactamente en qué milisegundo empieza y termina cada palabra. En Music Lab, este proceso está completamente automatizado y se divide en tres fases principales:
+
+### 1. Aislamiento de Voces (Demucs)
+Las canciones comerciales suelen tener instrumentales muy fuertes o coros que confunden a los modelos de reconocimiento de voz. Para solucionar esto, Music Lab integra de manera nativa [Demucs (htdemucs)](https://github.com/facebookresearch/demucs), un modelo de separación de fuentes de audio de última generación creado por Facebook Research.
+* Si seleccionas la opción "Aislar voz", el backend procesa el archivo original y extrae **solo la voz (vocals)** en un archivo `.wav` puro. 
+* Este archivo "limpio" será la base para la alineación, evitando errores causados por los bajos o baterías de la canción.
+
+### 2. Detección de Actividad de Voz (VAD con Auditok)
+Incluso con la voz aislada, pueden existir fragmentos largos de silencio o ruido de respiración. Opcionalmente, se utiliza un motor **VAD (Voice Activity Detection)** como `auditok` para recortar y descartar los silencios absolutos, enviando a la IA únicamente los segmentos de audio que contienen voz real. Esto acelera el procesamiento y reduce las "alucinaciones" (texto fantasma) en el modelo de transcripción.
+
+### 3. Alineamiento Temporal (Whisper Timestamped)
+Finalmente, el audio procesado junto con **la letra escrita** se introduce a un modelo de OpenAI llamado [Whisper](https://github.com/openai/whisper).
+* En lugar de pedirle a Whisper que transcriba la canción desde cero (lo cual generaría errores si el cantante pronuncia mal, o simplemente ignoraría las repeticiones artísticas), usamos un repositorio especializado: `whisper-timestamped`.
+* Le entregamos el audio de la voz y **la letra oficial** de la canción. Whisper realiza un *Force-Alignment* (Alineación forzada). 
+* Matemáticamente, el modelo mapea los fonemas del audio con las palabras del texto provisto y devuelve un archivo `.json` con el `start` y `end` (en milisegundos) de cada palabra con una precisión asombrosa. 
+* Este archivo `.json` es el que luego alimenta nuestro generador de videos en Python para pintar cada sílaba en el frame correcto.
+
 ## ⚙️ Uso / Instalación
 
 1.  **Clona este repositorio** y navega al directorio del proyecto.
