@@ -237,6 +237,11 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
         vad=vad, separate_vocals=separate_vocals,
         progress_cb=progress_cb,
     )
+    if not data.get("quality", {}).get("playable"):
+        raise ValueError(
+            "La sincronización no tiene calidad suficiente para exportar. "
+            "Revisa la letra y vuelve a sincronizar antes de generar el video."
+        )
     stanzas = data["stanzas"]
     fonts = _build_fonts()
 
@@ -269,7 +274,7 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
     logger = _MoviepyProgressLogger(_pc) if progress_cb else "bar"
     print(f"Exportando {output_path}...")
     video_clip.write_videofile(
-        str(output_path), fps=24, codec="libx264", audio_codec="aac", logger=logger
+        str(output_path), fps=60, codec="libx264", audio_codec="aac", logger=logger
     )
     print("¡Video generado exitosamente!")
 
