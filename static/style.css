@@ -718,16 +718,13 @@ h2 {
 #studioSyncBtn, #studioListenVocalsBtn {
   margin-top: 0;
   align-self: auto;
-}
-
-#studioListenVocalsBtn {
-  padding: 9px 20px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 20px;
   font-size: 0.85rem;
-}
-
-#studioSyncBtn {
-  padding: 9px 20px;
-  font-size: 0.85rem;
+  box-sizing: border-box;
 }
 
 /* Fila de acciones del fragmento: dos botones ghost lado a lado. */
@@ -741,9 +738,12 @@ h2 {
 
 #fragPreviewBtn, #videoGenerateBtn {
   width: 170px;
-  padding: 9px 20px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   font-size: 0.85rem;
-  text-align: center;
   box-sizing: border-box;
   align-self: auto;
 }
