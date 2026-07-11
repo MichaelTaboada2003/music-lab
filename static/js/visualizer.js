@@ -66,6 +66,8 @@ const SCENES = [
 let audioCtx;
 let analyser;
 let source;
+let gainNode;
+let pendingGain = 1;
 let dataArray;
 let timeDataArray;
 let bufferLength;
@@ -138,8 +140,19 @@ function initAudioVisualizer() {
   _viz.previousSpectrum = new Float32Array(bufferLength);
 
   source = audioCtx.createMediaElementSource(audioPlayer);
-  source.connect(analyser);
+  gainNode = audioCtx.createGain();
+  gainNode.gain.value = pendingGain;
+  source.connect(gainNode);
+  gainNode.connect(analyser);
   analyser.connect(audioCtx.destination);
+}
+
+function setTrackGain(gainDb) {
+  const value = Number(gainDb) || 0;
+  pendingGain = _clamp(Math.pow(10, value / 20), 0.25, 4);
+  if (!gainNode || !audioCtx) return;
+  gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+  gainNode.gain.setTargetAtTime(pendingGain, audioCtx.currentTime, 0.12);
 }
 
 function _clearCanvas() {
@@ -890,6 +903,9 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("music-lab:songchange", (event) => {
   _setAmbientPalette(_songKeyFromDetail(event.detail));
+});
+window.addEventListener("music-lab:trackgain", (event) => {
+  setTrackGain(event.detail?.gainDb);
 });
 
 // Inicializar en el primer clic en la página (política del navegador: AudioContext

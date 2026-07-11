@@ -46,6 +46,12 @@ export function pollJob(jobId, { onDone, onError, onTick }) {
   return interval;
 }
 
+export function waitForJob(jobId) {
+  return new Promise((resolve, reject) => {
+    pollJob(jobId, { onDone: resolve, onError: reject });
+  });
+}
+
 /** Refleja el progreso de un job en la barra .job-progress de un paso.
  *  prefix: "sync" | "video" — coincide con los IDs del HTML. */
 export function renderProgress(prefix, job) {
@@ -90,7 +96,7 @@ export async function refreshSongSelect(selectEl, onChange) {
       const opt = document.createElement("option");
       opt.value = c.stem;
       opt.textContent =
-        c.stem +
+        [c.title || c.stem, c.artist].filter(Boolean).join(" · ") +
         (c.tiene_letra ? " · letra" : "") +
         (c.tiene_sync ? " · karaoke" : "");
       selectEl.appendChild(opt);

@@ -162,5 +162,5 @@ def api_sincronizar(stem: str, payload: SyncRequest):
             progress_cb=progress_cb,
         )
 
-    job_id = start_job(_tarea)
+    job_id = start_job(_tarea, key=f"sync:{stem}")
     return {"job_id": job_id}

@@ -348,8 +348,8 @@ fragPreviewBtn.addEventListener("click", async () => {
   const end = fragEndInput.value ? parseFloat(fragEndInput.value) : null;
 
   // Rellenar cabecera de la terminal con título/artista del formulario.
-  const titulo = document.getElementById("videoTitulo").value.trim() || stem;
-  const artista = document.getElementById("videoArtista").value.trim();
+  const titulo = document.getElementById("videoTitulo").value.trim() || song.title || stem;
+  const artista = document.getElementById("videoArtista").value.trim() || song.artist || "";
   fragPreviewTitle.textContent = titulo;
   fragPreviewArtist.textContent = artista ? `por ${artista}` : "";
   fragPreviewLabel.textContent =
@@ -498,8 +498,9 @@ videoGenerateBtn.addEventListener("click", async () => {
   const opts = studioSyncOptions();
   const nombre_salida =
     document.getElementById("videoOutputName").value.trim() || null;
-  const titulo = document.getElementById("videoTitulo").value.trim() || null;
-  const artista = document.getElementById("videoArtista").value.trim() || null;
+  const selectedSong = canciones.find((song) => song.stem === stem);
+  const titulo = document.getElementById("videoTitulo").value.trim() || selectedSong?.title || stem;
+  const artista = document.getElementById("videoArtista").value.trim() || selectedSong?.artist || null;
   const start_time =
     fragStartInput.value !== "" ? parseFloat(fragStartInput.value) : null;
   const end_time =

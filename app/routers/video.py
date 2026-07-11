@@ -4,6 +4,7 @@ Endpoints del generador de video estilo TikTok.
   - GET  /api/videos               → lista mp4 generados
 """
 
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -39,6 +40,11 @@ def api_generar_video(stem: str, payload: VideoRequest):
         raise HTTPException(400, "Esta canción no tiene letra guardada todavía.")
 
     output_name = (payload.nombre_salida or stem).strip() or stem
+    if Path(output_name).name != output_name:
+        raise HTTPException(400, "El nombre de salida no puede incluir carpetas.")
+    output_name = Path(output_name).stem.strip()
+    if not output_name:
+        raise HTTPException(400, "El nombre de salida no es válido.")
     output_path = VIDEOS_DIR / f"{output_name}.mp4"
 
     def _tarea(progress_cb):
@@ -53,7 +59,7 @@ def api_generar_video(stem: str, payload: VideoRequest):
         )
         return {"video": output_path.name}
 
-    job_id = start_job(_tarea)
+    job_id = start_job(_tarea, key=f"video:{stem}")
     return {"job_id": job_id}
 
 

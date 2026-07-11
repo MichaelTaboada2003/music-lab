@@ -3,7 +3,7 @@
 //             carga de letras en el reproductor.
 // ============================================================
 
-import { apiGet, setStatus } from "./api.js";
+import { apiGet, apiPost, pollJob, refreshSongSelect } from "./api.js";
 import {
   showKaraoke,
   showPlainLyrics,
@@ -24,9 +24,18 @@ export const playBtn = document.getElementById("playBtn");
 const currentSongTitle = document.getElementById("currentSongTitle");
 const currentArtistName = document.getElementById("currentArtistName");
 const volumeSlider = document.querySelector(".volume-slider");
+const soundcheckPanel = document.getElementById("soundcheckPanel");
+const soundcheckDetail = document.getElementById("soundcheckDetail");
+const soundcheckBtn = document.getElementById("soundcheckBtn");
+const metadataPanel = document.getElementById("metadataPanel");
+const metadataTitle = document.getElementById("metadataTitle");
+const metadataArtist = document.getElementById("metadataArtist");
+const metadataSaveBtn = document.getElementById("metadataSaveBtn");
+const metadataStatus = document.getElementById("metadataStatus");
 
 let isDragging = false;
 let newTime = 0;
+let soundcheckStem = null;
 
 export const playIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" stroke-width="2"><path d="M10 18l6 -6l-6 -6v12"></path></svg>`;
 export const pauseIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" stroke-width="2"><path d="M6 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"></path><path d="M14 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"></path></svg>`;
@@ -53,29 +62,139 @@ export function cargarCancion(index) {
     audioPlayer.src = "";
     currentSongTitle.textContent = "Sin canción";
     currentArtistName.textContent = "Artista";
+    soundcheckStem = null;
     window.dispatchEvent(
       new CustomEvent("music-lab:songchange", {
         detail: { title: "Music Lab Ambient" },
       })
     );
+    _setTrackGain(0);
+    _renderSoundcheck(null);
+    _renderMetadata(null);
     _loadPlayerLyrics(null);
     return;
   }
-  currentSongTitle.textContent = cancion.stem;
-  currentArtistName.textContent = cancion.tiene_letra
-    ? "Letra disponible"
-    : "Sin letra guardada";
+  currentSongTitle.textContent = cancion.title || cancion.stem;
+  currentArtistName.textContent = cancion.artist || "Biblioteca local";
   audioPlayer.src = `/canciones/${encodeURIComponent(cancion.nombre)}`;
   window.dispatchEvent(
     new CustomEvent("music-lab:songchange", {
       detail: {
-        title: cancion.stem,
+        title: cancion.title || cancion.stem,
+        artist: cancion.artist || "",
         filename: cancion.nombre,
       },
     })
   );
+  _setTrackGain(0);
+  _loadSoundcheck(cancion);
+  _renderMetadata(cancion);
   _loadPlayerLyrics(cancion);
 }
+
+function _renderMetadata(cancion) {
+  if (!metadataPanel || !metadataTitle || !metadataArtist || !metadataSaveBtn) return;
+  metadataPanel.open = false;
+  metadataStatus.textContent = "";
+  metadataTitle.value = cancion?.title || "";
+  metadataArtist.value = cancion?.artist || "";
+  metadataSaveBtn.disabled = !cancion;
+}
+
+function _setTrackGain(gainDb) {
+  window.dispatchEvent(
+    new CustomEvent("music-lab:trackgain", { detail: { gainDb } })
+  );
+}
+
+function _formatGain(gainDb) {
+  const gain = Number(gainDb) || 0;
+  return `${gain >= 0 ? "+" : ""}${gain.toFixed(1)} dB`;
+}
+
+function _renderSoundcheck(analysis) {
+  if (!soundcheckPanel || !soundcheckDetail || !soundcheckBtn) return;
+  if (!analysis) {
+    soundcheckDetail.textContent = "Sin calibrar";
+    soundcheckBtn.textContent = "Analizar";
+    soundcheckBtn.disabled = !soundcheckStem;
+    return;
+  }
+  soundcheckDetail.textContent = `${_formatGain(analysis.gain_db)} · ${analysis.integrated_lufs.toFixed(1)} LUFS`;
+  soundcheckBtn.textContent = "Reanalizar";
+  soundcheckBtn.disabled = false;
+}
+
+async function _loadSoundcheck(cancion) {
+  soundcheckStem = cancion.stem;
+  _renderSoundcheck(null);
+  try {
+    const data = await apiGet(`/api/audio-calidad/${encodeURIComponent(cancion.stem)}`);
+    if (soundcheckStem !== cancion.stem || !data.existe) return;
+    _setTrackGain(data.datos.gain_db);
+    _renderSoundcheck(data.datos);
+  } catch {
+    // Soundcheck es opcional: el reproductor sigue funcionando sin análisis.
+  }
+}
+
+soundcheckBtn?.addEventListener("click", async () => {
+  const stem = soundcheckStem;
+  if (!stem) return;
+  soundcheckBtn.disabled = true;
+  soundcheckDetail.textContent = "Midiendo volumen...";
+  try {
+    const { job_id } = await apiPost(`/api/audio-calidad/${encodeURIComponent(stem)}`);
+    pollJob(job_id, {
+      onTick: (job) => {
+        if (soundcheckStem === stem) soundcheckDetail.textContent = job.progress?.phase || "Midiendo volumen...";
+      },
+      onDone: (analysis) => {
+        if (soundcheckStem === stem) {
+          _setTrackGain(analysis.gain_db);
+          _renderSoundcheck(analysis);
+        }
+      },
+      onError: (error) => {
+        if (soundcheckStem === stem) {
+          soundcheckDetail.textContent = `No se pudo medir: ${error}`;
+          soundcheckBtn.disabled = false;
+        }
+      },
+    });
+  } catch (error) {
+    soundcheckDetail.textContent = `No se pudo medir: ${error.message}`;
+    soundcheckBtn.disabled = false;
+  }
+});
+
+metadataSaveBtn?.addEventListener("click", async () => {
+  const song = canciones[indiceActual];
+  if (!song) return;
+  metadataSaveBtn.disabled = true;
+  metadataStatus.textContent = "Guardando ficha...";
+  try {
+    const result = await apiPost(
+      `/api/canciones/${encodeURIComponent(song.stem)}/metadata`,
+      { title: metadataTitle.value, artist: metadataArtist.value }
+    );
+    Object.assign(song, result.metadata);
+    currentSongTitle.textContent = song.title;
+    currentArtistName.textContent = song.artist || "Biblioteca local";
+    metadataStatus.textContent = "Ficha guardada.";
+    renderPlaylist();
+    const [{ studioSongSelect }, { lyricsSongSelect }] = await Promise.all([
+      import("./studio.js"),
+      import("./lyrics.js"),
+    ]);
+    refreshSongSelect(studioSongSelect);
+    refreshSongSelect(lyricsSongSelect);
+  } catch (error) {
+    metadataStatus.textContent = `No se pudo guardar: ${error.message}`;
+  } finally {
+    metadataSaveBtn.disabled = false;
+  }
+});
 
 async function _loadPlayerLyrics(cancion) {
   resetKaraoke();
@@ -115,7 +234,10 @@ export function renderPlaylist() {
   canciones.forEach((cancion, index) => {
     const songItem = document.createElement("div");
     songItem.classList.add("song-item");
-    songItem.dataset.stem = cancion.stem.toLowerCase();
+    songItem.dataset.search = [cancion.title, cancion.artist, cancion.stem]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
     if (index === indiceActual) songItem.classList.add("active");
 
     const songDetails = document.createElement("div");
@@ -130,7 +252,7 @@ export function renderPlaylist() {
 
     const songTitle = document.createElement("span");
     songTitle.classList.add("song-title");
-    songTitle.textContent = cancion.stem;
+    songTitle.textContent = cancion.title || cancion.stem;
 
     titleRow.appendChild(eq);
     titleRow.appendChild(songTitle);
@@ -143,6 +265,12 @@ export function renderPlaylist() {
     `;
 
     songDetails.appendChild(titleRow);
+    if (cancion.artist) {
+      const songArtist = document.createElement("span");
+      songArtist.className = "song-artist";
+      songArtist.textContent = cancion.artist;
+      songDetails.appendChild(songArtist);
+    }
     songDetails.appendChild(badges);
 
     const songDuration = document.createElement("span");
@@ -171,8 +299,8 @@ export function applyPlaylistFilter() {
   const inp = document.getElementById("playlistSearch");
   const q = inp ? inp.value.trim().toLowerCase() : "";
   document.querySelectorAll("#playlistContainer .song-item").forEach((el) => {
-    const stem = el.dataset.stem || "";
-    el.hidden = q && !stem.includes(q);
+    const search = el.dataset.search || "";
+    el.hidden = q && !search.includes(q);
   });
 }
 

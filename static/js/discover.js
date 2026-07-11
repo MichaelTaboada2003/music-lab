@@ -3,7 +3,7 @@
 //               Mis favoritas (Spotify Web API)
 // ============================================================
 
-import { apiGet, apiPost, setStatus, refreshSongSelect } from "./api.js";
+import { apiGet, apiPost, setStatus, refreshSongSelect, waitForJob } from "./api.js";
 import { canciones, cargarListaCanciones } from "./player.js";
 import { studioSongSelect } from "./studio.js";
 
@@ -54,8 +54,11 @@ export function isInLibrary(title) {
   const t = (title || "").trim().toLowerCase();
   if (!t) return false;
   return canciones.some((c) => {
-    const s = c.stem.toLowerCase();
-    return s.includes(t) || t.includes(s);
+    const terms = [c.title, c.artist, c.stem]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return terms.includes(t) || t.includes(terms);
   });
 }
 
@@ -65,9 +68,10 @@ export async function downloadFromSpotify(btn, title, artists) {
   btn.title = "";
   let requestErr = null;
   try {
-    await apiPost("/api/descargar", {
+    const { job_id } = await apiPost("/api/descargar", {
       url: `ytsearch:${title} ${artists} audio`,
     });
+    await waitForJob(job_id);
   } catch (e) {
     requestErr = e;
   }

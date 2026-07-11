@@ -11,7 +11,7 @@
 import { init as initKaraoke } from "./karaoke.js";
 import { audioPlayer, cargarListaCanciones } from "./player.js";
 import { activateFromHash } from "./nav.js";
-import { apiPost, setStatus } from "./api.js";
+import { apiPost, setStatus, pollJob, renderProgress, hideProgress } from "./api.js";
 import { enhanceSelect } from "./dropdown.js";
 
 // Módulos con efectos laterales: registran listeners al ser evaluados.
@@ -56,16 +56,27 @@ downloadForm.addEventListener("submit", async (e) => {
   downloadSubmit.disabled = true;
   setStatus(downloadStatus, "Descargando... esto puede tardar un momento.");
   try {
-    const data = await apiPost("/api/descargar", {
+    const { job_id } = await apiPost("/api/descargar", {
       url,
       nombre: nombre || null,
     });
-    setStatus(downloadStatus, `Descargado con éxito: ${data.archivo}`, "ok");
-    downloadForm.reset();
-    cargarListaCanciones();
+    pollJob(job_id, {
+      onTick: (job) => renderProgress("download", job),
+      onDone: (data) => {
+        hideProgress("download");
+        setStatus(downloadStatus, `Descargado con éxito: ${data.archivo}`, "ok");
+        downloadForm.reset();
+        downloadSubmit.disabled = false;
+        cargarListaCanciones();
+      },
+      onError: (error) => {
+        hideProgress("download");
+        setStatus(downloadStatus, `Error: ${error}`, "error");
+        downloadSubmit.disabled = false;
+      },
+    });
   } catch (err) {
     setStatus(downloadStatus, `Error: ${err.message}`, "error");
-  } finally {
     downloadSubmit.disabled = false;
   }
 });

@@ -8,3 +8,5 @@ __pycache__/
 /letras
 .env
 spotify_auth.json
+.audio_quality.json
+.library_metadata.json

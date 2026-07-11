@@ -79,6 +79,24 @@
               <input type="range" class="volume-slider" min="0" max="1" step="0.1" value="0.5" />
             </div>
 
+            <div class="np-soundcheck" id="soundcheckPanel">
+              <div class="soundcheck-copy">
+                <span class="soundcheck-label">Soundcheck</span>
+                <span class="soundcheck-detail" id="soundcheckDetail">Sin calibrar</span>
+              </div>
+              <button id="soundcheckBtn" class="btn-ghost" type="button">Analizar</button>
+            </div>
+
+            <details class="np-metadata" id="metadataPanel">
+              <summary>Editar ficha de la canción</summary>
+              <div class="metadata-fields">
+                <label>Título <input id="metadataTitle" type="text" maxlength="160" /></label>
+                <label>Artista <input id="metadataArtist" type="text" maxlength="160" /></label>
+              </div>
+              <button id="metadataSaveBtn" class="btn-ghost" type="button">Guardar ficha</button>
+              <span class="metadata-status" id="metadataStatus" aria-live="polite"></span>
+            </details>
+
             <div class="playlist-search">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
               <input type="text" id="playlistSearch" placeholder="Buscar en tu biblioteca..." />
@@ -138,6 +156,13 @@
 
             <button type="submit" id="downloadSubmit">Descargar</button>
           </form>
+          <div class="job-progress" id="downloadProgress" hidden>
+            <div class="job-progress-head">
+              <span class="job-progress-phase" id="downloadProgressPhase"></span>
+              <span class="job-progress-pct" id="downloadProgressPct"></span>
+            </div>
+            <div class="job-progress-bar"><div class="job-progress-fill" id="downloadProgressFill"></div></div>
+          </div>
           <div id="downloadStatus" class="status-box"></div>
         </details>
 

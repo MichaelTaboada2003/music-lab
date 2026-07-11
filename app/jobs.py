@@ -18,25 +18,52 @@ Uso:
 """
 
 import threading
+import time
 import uuid
 
 from fastapi import APIRouter, HTTPException
 
 _jobs: dict = {}
 _jobs_lock = threading.Lock()
+_active_keys: dict[str, str] = {}
+JOB_RETENTION_SECONDS = 4 * 60 * 60
 
 
-def start_job(fn) -> str:
+def _cleanup_locked(now: float) -> None:
+    """Evita que el historial de tareas crezca durante sesiones largas."""
+    expired = [
+        job_id
+        for job_id, job in _jobs.items()
+        if job["status"] != "running"
+        and job.get("finished_at")
+        and now - job["finished_at"] > JOB_RETENTION_SECONDS
+    ]
+    for job_id in expired:
+        _jobs.pop(job_id, None)
+
+
+def start_job(fn, key: str | None = None) -> str:
     """Lanza `fn(progress_cb)` en un hilo. `progress_cb(phase: str, pct: float | None)`
     permite a la tarea reportar en qué fase está y (si se conoce) qué porcentaje
     lleva. Cuando pct es None, el frontend muestra una barra indeterminada.
     """
-    job_id = uuid.uuid4().hex
+    now = time.time()
     with _jobs_lock:
+        _cleanup_locked(now)
+        if key and (active_id := _active_keys.get(key)):
+            active = _jobs.get(active_id)
+            if active and active["status"] == "running":
+                return active_id
+            _active_keys.pop(key, None)
+
+        job_id = uuid.uuid4().hex
         _jobs[job_id] = {
             "status": "running", "result": None, "error": None,
             "progress": {"phase": "En cola", "pct": None},
+            "created_at": now, "finished_at": None, "key": key,
         }
+        if key:
+            _active_keys[key] = job_id
 
     def progress_cb(phase: str, pct=None):
         pct_val = None
@@ -54,13 +81,22 @@ def start_job(fn) -> str:
         try:
             result = fn(progress_cb)
             with _jobs_lock:
-                _jobs[job_id]["status"] = "done"
-                _jobs[job_id]["result"] = result
-                _jobs[job_id]["progress"] = {"phase": "Listo", "pct": 100}
+                job = _jobs[job_id]
+                job["status"] = "done"
+                job["result"] = result
+                job["progress"] = {"phase": "Listo", "pct": 100}
+                job["finished_at"] = time.time()
         except Exception as e:
             with _jobs_lock:
-                _jobs[job_id]["status"] = "error"
-                _jobs[job_id]["error"] = str(e)
+                job = _jobs[job_id]
+                job["status"] = "error"
+                job["error"] = str(e).strip() or e.__class__.__name__
+                job["finished_at"] = time.time()
+        finally:
+            if key:
+                with _jobs_lock:
+                    if _active_keys.get(key) == job_id:
+                        _active_keys.pop(key, None)
 
     threading.Thread(target=target, daemon=True).start()
     return job_id
@@ -72,7 +108,8 @@ router = APIRouter(tags=["jobs"])
 @router.get("/api/job/{job_id}")
 def api_job_status(job_id: str):
     with _jobs_lock:
+        _cleanup_locked(time.time())
         job = _jobs.get(job_id)
     if not job:
         raise HTTPException(404, "Job no encontrado")
-    return job
+    return {name: value for name, value in job.items() if name != "key"}

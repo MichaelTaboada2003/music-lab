@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import CANCIONES_DIR, STATIC_DIR, VIDEOS_DIR, VOCALS_DIR
 from .jobs import router as jobs_router
-from .routers import frontend, karaoke, songs, spotify, video
+from .routers import audio_quality, frontend, karaoke, songs, spotify, video
 
 app = FastAPI(title="Music Lab")
 
@@ -48,6 +48,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # Routers por dominio.
 app.include_router(jobs_router)
 app.include_router(frontend.router)
+app.include_router(audio_quality.router)
 app.include_router(songs.router)
 app.include_router(karaoke.router)
 app.include_router(video.router)
