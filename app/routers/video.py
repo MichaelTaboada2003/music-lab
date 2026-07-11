@@ -5,7 +5,7 @@ Endpoints del generador de video estilo TikTok.
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -30,6 +30,7 @@ class VideoRequest(BaseModel):
     artista: Optional[str] = None
     vad: Optional[str] = "auditok"
     separate_vocals: bool = True
+    lyric_style: Literal["karaoke", "typing"] = "karaoke"
 
 
 @router.post("/api/video/{stem}")
@@ -39,7 +40,8 @@ def api_generar_video(stem: str, payload: VideoRequest):
     if not lp.is_file():
         raise HTTPException(400, "Esta canción no tiene letra guardada todavía.")
 
-    output_name = (payload.nombre_salida or stem).strip() or stem
+    default_suffix = "escritura" if payload.lyric_style == "typing" else "karaoke"
+    output_name = (payload.nombre_salida or f"{stem} - {default_suffix}").strip()
     if Path(output_name).name != output_name:
         raise HTTPException(400, "El nombre de salida no puede incluir carpetas.")
     output_name = Path(output_name).stem.strip()
@@ -55,11 +57,15 @@ def api_generar_video(stem: str, payload: VideoRequest):
             start_time=payload.start_time, end_time=payload.end_time,
             title=payload.titulo or stem, artist=payload.artista,
             vad=vad_value(payload.vad), separate_vocals=payload.separate_vocals,
+            lyric_style=payload.lyric_style,
             progress_cb=progress_cb,
         )
         return {"video": output_path.name}
 
-    job_id = start_job(_tarea, key=f"video:{stem}")
+    job_id = start_job(
+        _tarea,
+        key=f"video:{stem}:{output_name}:{payload.lyric_style}:{payload.start_time}:{payload.end_time}",
+    )
     return {"job_id": job_id}
 
 

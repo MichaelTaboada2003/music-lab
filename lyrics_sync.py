@@ -36,7 +36,7 @@ except ImportError:
 
 WHISPER_SAMPLE_RATE = 16000
 _WORD_RE = re.compile(r"[^\w'áéíóúñüàèìòùâêîôûäëïöü]+", re.UNICODE)
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 MIN_WORD_DURATION = 0.06
 PROMPT_MAX_CHARS = 480
 
@@ -266,7 +266,7 @@ def sync_cache_is_current(data: dict, audio_path: str, lyrics_path: str) -> bool
     """Comprueba que una cache pertenezca exactamente a los archivos actuales."""
     try:
         return (
-            data.get("cache_version") == CACHE_VERSION
+            data.get("cache_version") in {2, CACHE_VERSION}
             and data.get("audio_signature") == _audio_signature(audio_path)
             and data.get("lyrics_signature") == _lyrics_signature(lyrics_path)
         )
@@ -339,14 +339,76 @@ def _sanitize_word_times(times, matched_flags, total_duration):
     return cleaned, repaired
 
 
-def _quality_report(matched_flags, repaired_flags, confidences):
-    total = len(matched_flags)
-    direct = sum(1 for matched in matched_flags if matched)
+def _word_weight(text: str) -> float:
+    """Aproxima duración hablada sin depender de ajustar milisegundos a mano."""
+    normalized = normalize_word(text)
+    vowels = sum(char in "aeiou" for char in normalized)
+    return max(1.0, len(normalized) * 0.62 + vowels * 0.38)
+
+
+def _auto_refine_stanzas(stanzas: list) -> None:
+    """Redistribuye grupos aproximados entre anclas reconocidas por Whisper.
+
+    Solo se promueven palabras dentro de una línea con al menos un ancla real.
+    Así ganamos una línea de karaoke estable sin declarar fiable una estrofa que
+    Whisper no logró relacionar con la voz en absoluto.
+    """
+    for stanza in stanzas:
+        for line in stanza:
+            words = line.get("words", [])
+            direct_indices = [index for index, word in enumerate(words) if word.get("synced")]
+            if not direct_indices:
+                continue
+
+            index = 0
+            while index < len(words):
+                if words[index].get("synced"):
+                    index += 1
+                    continue
+
+                start_index = index
+                while index < len(words) and not words[index].get("synced"):
+                    index += 1
+                end_index = index
+                group = words[start_index:end_index]
+
+                previous = words[start_index - 1] if start_index else None
+                following = words[end_index] if end_index < len(words) else None
+                left = previous["end"] if previous else group[0]["start"]
+                right = following["start"] if following else group[-1]["end"]
+                minimum_span = MIN_WORD_DURATION * len(group)
+                if right - left < minimum_span:
+                    left = group[0]["start"]
+                    right = max(group[-1]["end"], left + minimum_span)
+
+                total_weight = sum(_word_weight(word["text"]) for word in group)
+                cursor = left
+                for group_index, word in enumerate(group):
+                    if group_index == len(group) - 1:
+                        end = right
+                    else:
+                        end = cursor + (right - left) * _word_weight(word["text"]) / total_weight
+                    word["start"] = round(cursor, 3)
+                    word["end"] = round(end, 3)
+                    word["synced"] = True
+                    word["auto_refined"] = True
+                    cursor = end
+
+            line["start"] = words[0]["start"]
+            line["end"] = words[-1]["end"]
+
+
+def _quality_report(direct_flags, repaired_flags, confidences, auto_flags=None):
+    total = len(direct_flags)
+    auto_flags = auto_flags or [False] * total
+    direct = sum(1 for matched in direct_flags if matched)
+    automatic = sum(1 for refined in auto_flags if refined)
     repairs = sum(1 for repaired in repaired_flags if repaired)
-    coverage = direct / total if total else 0.0
+    coverage = (direct + automatic) / total if total else 0.0
+    direct_coverage = direct / total if total else 0.0
     valid_confidences = [
         value
-        for value, matched in zip(confidences, matched_flags)
+        for value, matched in zip(confidences, direct_flags)
         if matched and value is not None
     ]
     avg_confidence = (
@@ -355,13 +417,16 @@ def _quality_report(matched_flags, repaired_flags, confidences):
         else None
     )
     confidence_bonus = max(0.0, (avg_confidence or 0.5) - 0.5) * 10
-    score = max(0.0, min(100.0, coverage * 100 - (repairs / max(total, 1)) * 25 + confidence_bonus))
+    auto_penalty = (automatic / max(total, 1)) * 18
+    score = max(0.0, min(100.0, coverage * 100 - auto_penalty - (repairs / max(total, 1)) * 25 + confidence_bonus))
 
-    if score >= 90 and coverage >= 0.85 and repairs <= 2:
+    if direct_coverage < 0.35:
+        label = "baja"
+    elif score >= 90 and direct_coverage >= 0.85 and repairs <= 2:
         label = "alta"
-    elif score >= 72 and coverage >= 0.70:
+    elif score >= 72 and coverage >= 0.82 and direct_coverage >= 0.50:
         label = "buena"
-    elif score >= 55 and coverage >= 0.55:
+    elif score >= 55 and coverage >= 0.70:
         label = "revisar"
     else:
         label = "baja"
@@ -371,8 +436,10 @@ def _quality_report(matched_flags, repaired_flags, confidences):
         "label": label,
         "playable": label != "baja",
         "direct_words": direct,
+        "auto_refined_words": automatic,
         "total_words": total,
         "coverage": round(coverage, 4),
+        "direct_coverage": round(direct_coverage, 4),
         "timing_repairs": repairs,
         "avg_confidence": round(avg_confidence, 4) if avg_confidence is not None else None,
     }
@@ -391,13 +458,26 @@ def quality_from_stanzas(stanzas: list) -> dict:
         for line in stanza
         for word in line.get("words", [])
     ]
-    matched = [bool(word.get("synced")) for word in words]
+    automatic = [bool(word.get("auto_refined")) for word in words]
+    matched = [bool(word.get("synced")) and not auto for word, auto in zip(words, automatic)]
     repaired = [bool(word.get("timing_repaired")) for word in words]
     confidences = [word.get("confidence") for word in words]
-    quality = _quality_report(matched, repaired, confidences)
-    quality["unresolved_words"] = sum(1 for value in matched if not value)
+    quality = _quality_report(matched, repaired, confidences, automatic)
+    quality["unresolved_words"] = sum(
+        1 for direct, auto in zip(matched, automatic) if not direct and not auto
+    )
     quality["manual_words"] = sum(1 for word in words if word.get("manual"))
     return quality
+
+
+def upgrade_sync_cache(data: dict) -> bool:
+    """Migra una cache anterior al refinamiento automático sin transcribir de nuevo."""
+    if data.get("cache_version") != 2 or not isinstance(data.get("stanzas"), list):
+        return False
+    _auto_refine_stanzas(data["stanzas"])
+    data["cache_version"] = CACHE_VERSION
+    data["quality"] = quality_from_stanzas(data["stanzas"])
+    return True
 
 
 def align_lyrics_to_audio(
@@ -460,6 +540,8 @@ def align_lyrics_to_audio(
             with open(cache_path, "r", encoding="utf-8") as f:
                 cached = json.load(f)
             if sync_cache_is_current(cached, audio_path, lyrics_path) and cached.get("config") == config_sig:
+                if upgrade_sync_cache(cached):
+                    _atomic_json_write(cache_path, cached)
                 print(f"Usando sincronización cacheada: {cache_path}")
                 _pc("Usando sincronización cacheada", 100)
                 return cached
@@ -560,6 +642,7 @@ def align_lyrics_to_audio(
                     "end": round(end, 3),
                     "synced": matched_flags[idx],
                     "manual": False,
+                    "auto_refined": False,
                     "timing_repaired": repaired_flags[idx],
                     "confidence": (
                         round(matched_confidences[idx], 4)
@@ -577,6 +660,8 @@ def align_lyrics_to_audio(
                 {"text": line, "start": line_start, "end": line_end, "words": word_entries}
             )
         result_stanzas.append(result_lines)
+
+    _auto_refine_stanzas(result_stanzas)
 
     data = {
         "cache_version": CACHE_VERSION,

@@ -10,3 +10,5 @@ __pycache__/
 spotify_auth.json
 .audio_quality.json
 .library_metadata.json
+.covers/
+*TEMP_MPY*

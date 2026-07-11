@@ -24,10 +24,22 @@ export const playBtn = document.getElementById("playBtn");
 const currentSongTitle = document.getElementById("currentSongTitle");
 const currentArtistName = document.getElementById("currentArtistName");
 const volumeSlider = document.querySelector(".volume-slider");
+const npArtwork = document.getElementById("npArtwork");
+const npArtworkImage = document.getElementById("npArtworkImage");
+const artworkMonogram = document.getElementById("artworkMonogram");
+const npTrackStatus = document.getElementById("npTrackStatus");
+const libraryCount = document.getElementById("libraryCount");
+const lyricsMode = document.getElementById("lyricsMode");
+const miniPlayer = document.getElementById("miniPlayer");
+const miniArtworkImage = document.getElementById("miniArtworkImage");
+const miniArtworkFallback = document.getElementById("miniArtworkFallback");
+const miniSongTitle = document.getElementById("miniSongTitle");
+const miniArtistName = document.getElementById("miniArtistName");
+const miniPlayBtn = document.getElementById("miniPlayBtn");
 const soundcheckPanel = document.getElementById("soundcheckPanel");
 const soundcheckDetail = document.getElementById("soundcheckDetail");
 const soundcheckBtn = document.getElementById("soundcheckBtn");
-const metadataPanel = document.getElementById("metadataPanel");
+const playerTools = document.getElementById("playerTools");
 const metadataTitle = document.getElementById("metadataTitle");
 const metadataArtist = document.getElementById("metadataArtist");
 const metadataSaveBtn = document.getElementById("metadataSaveBtn");
@@ -62,6 +74,8 @@ export function cargarCancion(index) {
     audioPlayer.src = "";
     currentSongTitle.textContent = "Sin canción";
     currentArtistName.textContent = "Artista";
+    _setArtwork(null);
+    _syncMiniPlayer(null);
     soundcheckStem = null;
     window.dispatchEvent(
       new CustomEvent("music-lab:songchange", {
@@ -76,6 +90,8 @@ export function cargarCancion(index) {
   }
   currentSongTitle.textContent = cancion.title || cancion.stem;
   currentArtistName.textContent = cancion.artist || "Biblioteca local";
+  _setArtwork(cancion);
+  _syncMiniPlayer(cancion);
   audioPlayer.src = `/canciones/${encodeURIComponent(cancion.nombre)}`;
   window.dispatchEvent(
     new CustomEvent("music-lab:songchange", {
@@ -93,12 +109,128 @@ export function cargarCancion(index) {
 }
 
 function _renderMetadata(cancion) {
-  if (!metadataPanel || !metadataTitle || !metadataArtist || !metadataSaveBtn) return;
-  metadataPanel.open = false;
+  if (!playerTools || !metadataTitle || !metadataArtist || !metadataSaveBtn) return;
+  playerTools.open = false;
   metadataStatus.textContent = "";
   metadataTitle.value = cancion?.title || "";
   metadataArtist.value = cancion?.artist || "";
   metadataSaveBtn.disabled = !cancion;
+}
+
+function _hashString(value) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function _initials(song) {
+  const source = song?.title || song?.stem || "Music Lab";
+  return source
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+}
+
+function _setTrackPalette(red, green, blue) {
+  const root = document.documentElement.style;
+  root.setProperty("--track-primary-rgb", `${red}, ${green}, ${blue}`);
+  root.setProperty("--track-primary", `rgb(${red}, ${green}, ${blue})`);
+  root.setProperty("--track-primary-soft", `rgba(${red}, ${green}, ${blue}, 0.16)`);
+  root.setProperty("--track-primary-glow", `rgba(${red}, ${green}, ${blue}, 0.30)`);
+}
+
+function _setFallbackPalette(song) {
+  const hue = _hashString(`${song?.title || "Music Lab"}:${song?.artist || ""}`) % 360;
+  const color = `hsl(${hue} 82% 58%)`;
+  document.documentElement.style.setProperty("--art-hue", hue);
+  document.documentElement.style.setProperty("--track-primary", color);
+  document.documentElement.style.setProperty("--track-primary-soft", `hsl(${hue} 82% 58% / 0.16)`);
+  document.documentElement.style.setProperty("--track-primary-glow", `hsl(${hue} 82% 58% / 0.30)`);
+}
+
+function _sampleArtworkPalette(image) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 20;
+  canvas.height = 20;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return;
+  try {
+    context.drawImage(image, 0, 0, 20, 20);
+    const pixels = context.getImageData(0, 0, 20, 20).data;
+    let red = 0;
+    let green = 0;
+    let blue = 0;
+    let count = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      const max = Math.max(pixels[i], pixels[i + 1], pixels[i + 2]);
+      const min = Math.min(pixels[i], pixels[i + 1], pixels[i + 2]);
+      if (max < 42 || max - min < 28) continue;
+      red += pixels[i];
+      green += pixels[i + 1];
+      blue += pixels[i + 2];
+      count += 1;
+    }
+    if (count) _setTrackPalette(Math.round(red / count), Math.round(green / count), Math.round(blue / count));
+  } catch {
+    // El fallback determinista ya mantiene la identidad si el canvas no puede leer la imagen.
+  }
+}
+
+function _setArtwork(song) {
+  const initials = _initials(song);
+  npArtwork?.classList.remove("track-change");
+  requestAnimationFrame(() => npArtwork?.classList.add("track-change"));
+  if (artworkMonogram) artworkMonogram.textContent = initials;
+  if (miniArtworkFallback) miniArtworkFallback.textContent = initials;
+  _setFallbackPalette(song);
+  if (!npArtworkImage || !song) {
+    npArtwork?.classList.remove("has-image");
+    if (npArtworkImage) npArtworkImage.hidden = true;
+    return;
+  }
+  npArtwork?.classList.remove("has-image");
+  npArtworkImage.hidden = true;
+  npArtworkImage.alt = `Carátula de ${song.title || song.stem}`;
+  npArtworkImage.onload = () => {
+    npArtworkImage.hidden = false;
+    npArtwork?.classList.add("has-image");
+    _sampleArtworkPalette(npArtworkImage);
+  };
+  npArtworkImage.onerror = () => {
+    npArtworkImage.hidden = true;
+    npArtwork?.classList.remove("has-image");
+  };
+  npArtworkImage.src = `/api/canciones/${encodeURIComponent(song.stem)}/cover?v=${Date.now()}`;
+}
+
+function _syncMiniPlayer(song) {
+  if (!miniPlayer) return;
+  miniPlayer.hidden = !song;
+  if (!song) return;
+  miniSongTitle.textContent = song.title || song.stem;
+  miniArtistName.textContent = song.artist || "Biblioteca local";
+  miniArtworkImage.hidden = true;
+  miniArtworkImage.alt = `Carátula de ${song.title || song.stem}`;
+  miniArtworkImage.onload = () => { miniArtworkImage.hidden = false; };
+  miniArtworkImage.onerror = () => { miniArtworkImage.hidden = true; };
+  miniArtworkImage.src = `/api/canciones/${encodeURIComponent(song.stem)}/cover?v=${Date.now()}`;
+  _updatePlaybackChrome();
+}
+
+function _updatePlaybackChrome() {
+  const playing = !audioPlayer.paused && Boolean(audioPlayer.src);
+  npArtwork?.classList.toggle("playing", playing);
+  if (npTrackStatus) npTrackStatus.textContent = playing ? "Reproduciendo" : "En pausa";
+  if (miniPlayBtn) {
+    miniPlayBtn.innerHTML = playing ? pauseIcon : playIcon;
+    miniPlayBtn.setAttribute("aria-label", playing ? "Pausar" : "Reproducir");
+  }
 }
 
 function _setTrackGain(gainDb) {
@@ -202,6 +334,7 @@ async function _loadPlayerLyrics(cancion) {
   if (!cancion) {
     karaokeStage.hidden = true;
     emptyEl.style.display = "";
+    if (lyricsMode) lyricsMode.textContent = "Sin letra";
     return;
   }
   try {
@@ -209,6 +342,7 @@ async function _loadPlayerLyrics(cancion) {
       const r = await apiGet(`/api/karaoke/${encodeURIComponent(cancion.stem)}`);
       if (r.existe) {
         emptyEl.style.display = "none";
+        if (lyricsMode) lyricsMode.textContent = "Sincronizada";
         showKaraoke(cancion.stem, r.datos);
         return;
       }
@@ -216,20 +350,26 @@ async function _loadPlayerLyrics(cancion) {
     if (cancion.tiene_letra) {
       const r = await apiGet(`/api/letra/${encodeURIComponent(cancion.stem)}`);
       emptyEl.style.display = "none";
+      if (lyricsMode) lyricsMode.textContent = "Lectura";
       showPlainLyrics(r.texto || "");
       return;
     }
     karaokeStage.hidden = true;
     emptyEl.style.display = "";
+    if (lyricsMode) lyricsMode.textContent = "Sin letra";
   } catch (e) {
     karaokeStage.hidden = true;
     emptyEl.style.display = "";
+    if (lyricsMode) lyricsMode.textContent = "Sin letra";
   }
 }
 
 export function renderPlaylist() {
   const playlistDiv = document.getElementById("playlistContainer");
   playlistDiv.innerHTML = "";
+  if (libraryCount) {
+    libraryCount.textContent = `${canciones.length} ${canciones.length === 1 ? "canción" : "canciones"}`;
+  }
 
   canciones.forEach((cancion, index) => {
     const songItem = document.createElement("div");
@@ -271,14 +411,30 @@ export function renderPlaylist() {
       songArtist.textContent = cancion.artist;
       songDetails.appendChild(songArtist);
     }
-    songDetails.appendChild(badges);
 
     const songDuration = document.createElement("span");
     songDuration.classList.add("song-duration");
     songDuration.textContent = cancion.duracion || "Desconocida";
 
+    const songMeta = document.createElement("div");
+    songMeta.classList.add("song-meta");
+    songMeta.appendChild(badges);
+    songMeta.appendChild(songDuration);
+
+    const songArtwork = document.createElement("div");
+    songArtwork.className = "song-artwork";
+    songArtwork.textContent = _initials(cancion);
+    const songArtworkImage = document.createElement("img");
+    songArtworkImage.alt = "";
+    songArtworkImage.loading = "lazy";
+    songArtworkImage.onload = () => songArtwork.classList.add("has-image");
+    songArtworkImage.onerror = () => songArtworkImage.remove();
+    songArtworkImage.src = `/api/canciones/${encodeURIComponent(cancion.stem)}/cover`;
+    songArtwork.appendChild(songArtworkImage);
+
+    songItem.appendChild(songArtwork);
     songItem.appendChild(songDetails);
-    songItem.appendChild(songDuration);
+    songItem.appendChild(songMeta);
     playlistDiv.appendChild(songItem);
 
     songItem.addEventListener("click", () => {
@@ -329,13 +485,16 @@ playBtn.addEventListener("click", () => {
   if (audioPlayer.paused) {
     audioPlayer.play();
     playBtn.innerHTML = pauseIcon;
-    document.getElementById("npArtwork").classList.add("playing");
   } else {
     audioPlayer.pause();
     playBtn.innerHTML = playIcon;
-    document.getElementById("npArtwork").classList.remove("playing");
   }
 });
+
+miniPlayBtn?.addEventListener("click", () => playBtn.click());
+
+audioPlayer.addEventListener("play", _updatePlaybackChrome);
+audioPlayer.addEventListener("pause", _updatePlaybackChrome);
 
 window.addEventListener("load", () => {
   const initialVolume = 0.5;

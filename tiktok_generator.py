@@ -14,11 +14,10 @@ tiempos de la letra son absolutos respecto al audio completo.
 """
 
 import argparse
-import hashlib
 from pathlib import Path
 
 from moviepy import VideoClip, AudioFileClip
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
 from lyrics_sync import align_lyrics_to_audio
@@ -70,14 +69,9 @@ COLOR_LYRIC_FUTURE = (76, 91, 111)
 COLOR_CURSOR = (180, 240, 240)
 COLOR_PROMPT = (100, 200, 130)
 
-VIDEO_PALETTES = [
-    ((35, 218, 154), (38, 125, 231), (144, 90, 226)),
-    ((244, 135, 72), (229, 70, 118), (112, 97, 232)),
-    ((59, 196, 232), (68, 99, 214), (35, 211, 161)),
-    ((244, 190, 62), (220, 85, 136), (89, 115, 232)),
-]
-
-WINDOW_BOUNDS = (54, 146, 1026, 1774)
+# La terminal ocupa el lienzo 9:16 completo: no hay un marco dentro de otro
+# ni franjas laterales que TikTok pueda percibir como contenido vacío.
+WINDOW_BOUNDS = (0, 0, *VIDEO_SIZE)
 
 _FONT_MONO_BOLD = ["Menlo-Bold", "DejaVuSansMono-Bold", "Courier New Bold", "CourierNewPS-BoldMT"]
 _FONT_MONO = ["Menlo-Regular", "Menlo", "DejaVuSansMono", "Courier New", "CourierNewPSMT"]
@@ -142,8 +136,8 @@ def _draw_window_chrome(draw, fonts, subtitle="lyrics live", bounds=WINDOW_BOUND
     width = right - left
     font_bar = fonts["bar"]
     bar_h = 74
-    draw.rounded_rectangle([left, top, right, top + bar_h + 22], radius=40, fill=COLOR_TITLEBAR)
-    draw.rectangle([left, top + 38, right, top + bar_h], fill=COLOR_TITLEBAR)
+    draw.rectangle([left, top, right, top + bar_h], fill=COLOR_TITLEBAR)
+    draw.line([left, top + bar_h, right, top + bar_h], fill=(103, 126, 157), width=2)
     # Tres puntos estilo macOS
     cy = top + bar_h // 2
     for idx, color in enumerate((COLOR_DOT_RED, COLOR_DOT_YELLOW, COLOR_DOT_GREEN)):
@@ -156,30 +150,15 @@ def _draw_window_chrome(draw, fonts, subtitle="lyrics live", bounds=WINDOW_BOUND
     return top + bar_h
 
 
-def _palette_for(title, artist):
-    key = f"{title or ''}::{artist or ''}".encode("utf-8")
-    return VIDEO_PALETTES[hashlib.sha256(key).digest()[0] % len(VIDEO_PALETTES)]
-
-
-def build_karaoke_scene(fonts, title=None, artist=None, video_size=VIDEO_SIZE):
-    """Construye la parte estática una vez para no difuminar por frame."""
-    width, height = video_size
-    primary, secondary, tertiary = _palette_for(title, artist)
-    base = Image.new("RGB", video_size, color=(7, 9, 15))
-    glow = Image.new("RGBA", video_size, (0, 0, 0, 0))
-    glow_draw = ImageDraw.Draw(glow)
-    glow_draw.ellipse((-width * 0.42, -height * 0.10, width * 0.64, height * 0.46), fill=(*primary, 118))
-    glow_draw.ellipse((width * 0.40, height * 0.02, width * 1.35, height * 0.56), fill=(*secondary, 102))
-    glow_draw.ellipse((width * 0.02, height * 0.64, width * 1.06, height * 1.22), fill=(*tertiary, 96))
-    glow = glow.filter(ImageFilter.GaussianBlur(radius=118))
-    base = Image.alpha_composite(base.convert("RGBA"), glow).convert("RGB")
-
+def build_karaoke_scene(fonts, title=None, artist=None, video_size=VIDEO_SIZE,
+                        lyric_style="karaoke"):
+    """Construye una terminal full-bleed, idéntica al lienzo final vertical."""
+    base = Image.new("RGB", video_size, color=COLOR_WINDOW)
     draw = ImageDraw.Draw(base)
-    left, top, right, bottom = WINDOW_BOUNDS
-    draw.rounded_rectangle([left + 16, top + 24, right + 16, bottom + 24], radius=46, fill=(2, 3, 5))
-    draw.rounded_rectangle([left, top, right, bottom], radius=42, fill=COLOR_WINDOW, outline=(103, 126, 157), width=2)
-    chrome_bottom = _draw_window_chrome(draw, fonts, bounds=WINDOW_BOUNDS)
-    draw.rectangle([left + 2, chrome_bottom, right - 2, bottom - 2], fill=COLOR_WINDOW)
+    left, top, right, _ = WINDOW_BOUNDS
+    subtitle = "typing lyrics" if lyric_style == "typing" else "lyrics live"
+    chrome_bottom = _draw_window_chrome(draw, fonts, subtitle=subtitle, bounds=WINDOW_BOUNDS)
+    draw.rectangle([left, chrome_bottom, right, VIDEO_SIZE[1]], fill=COLOR_WINDOW)
 
     y = top + 150
     if title:
@@ -201,10 +180,12 @@ def build_karaoke_scene(fonts, title=None, artist=None, video_size=VIDEO_SIZE):
 
 
 def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
-                       video_size=VIDEO_SIZE, scene_image=None):
+                       video_size=VIDEO_SIZE, scene_image=None,
+                       lyric_style="karaoke"):
     width, height = video_size
     img = scene_image.copy() if scene_image is not None else build_karaoke_scene(
-        fonts, title=title, artist=artist, video_size=video_size
+        fonts, title=title, artist=artist, video_size=video_size,
+        lyric_style=lyric_style,
     )
     draw = ImageDraw.Draw(img)
 
@@ -253,7 +234,7 @@ def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
             elif current_time >= word["start"]:
                 draw.text((x, y_cursor), wtext, font=font_lyric, fill=COLOR_LYRIC_CURRENT, stroke_width=1, stroke_fill=COLOR_CURSOR)
                 cursor_pos = (x + w_width + 4, y_cursor)
-            else:
+            elif lyric_style == "karaoke":
                 draw.text((x, y_cursor), wtext, font=font_lyric, fill=COLOR_LYRIC_FUTURE)
             x += w_width + space_w
         y_cursor += line_height
@@ -281,7 +262,10 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
                          model="small", force_sync=False, start_time=None,
                          end_time=None, title=None, artist=None,
                          vad="auditok", separate_vocals=True,
+                         lyric_style="karaoke",
                          progress_cb=None):
+    if lyric_style not in {"karaoke", "typing"}:
+        raise ValueError("El formato de letra debe ser 'karaoke' o 'typing'.")
     def _pc(phase, pct=None):
         if progress_cb:
             try:
@@ -307,7 +291,9 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
     stanzas = data["stanzas"]
     fonts = _build_fonts()
     _pc("Componiendo escena", 94)
-    scene_image = build_karaoke_scene(fonts, title=title, artist=artist)
+    scene_image = build_karaoke_scene(
+        fonts, title=title, artist=artist, lyric_style=lyric_style,
+    )
 
     # 3. Cargar audio y resolver el fragmento a exportar (por defecto, todo).
     audio_clip = AudioFileClip(str(audio_path))
@@ -328,7 +314,7 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
     def make_frame(t):
         return make_karaoke_frame(
             stanzas, t + frag_start, fonts, title=title, artist=artist,
-            scene_image=scene_image,
+            scene_image=scene_image, lyric_style=lyric_style,
         )
 
     video_clip = VideoClip(make_frame, duration=duration)
@@ -359,6 +345,7 @@ if __name__ == "__main__":
     parser.add_argument("--end", type=float, default=None, help="Segundo de fin del fragmento a exportar")
     parser.add_argument("-t", "--titulo", default=None, help="Título a mostrar en el video")
     parser.add_argument("-a", "--artista", default=None, help="Artista a mostrar en el video")
+    parser.add_argument("--lyric-style", choices=("karaoke", "typing"), default="karaoke")
     parser.add_argument("--vad", default="auditok", help="VAD: auditok, silero, o 'none' para desactivar.")
     parser.add_argument("--no-separacion", action="store_true", help="No aislar la voz con Demucs.")
 
@@ -368,5 +355,5 @@ if __name__ == "__main__":
         args.audio, args.letra, args.output,
         language=args.language, model=args.model, force_sync=args.force_sync,
         start_time=args.start, end_time=args.end, title=args.titulo, artist=args.artista,
-        vad=vad_arg, separate_vocals=not args.no_separacion,
+        vad=vad_arg, separate_vocals=not args.no_separacion, lyric_style=args.lyric_style,
     )

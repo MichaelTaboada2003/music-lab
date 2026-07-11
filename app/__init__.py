@@ -18,7 +18,7 @@ Ejecutar con:
     uvicorn app:app --reload
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -38,6 +38,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def keep_frontend_modules_fresh(request: Request, call_next):
+    """Evita que un módulo ES antiguo sobreviva después de una actualización local."""
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 # Estáticos: audio, videos, voces y los assets de la SPA.
 app.mount("/canciones", StaticFiles(directory=str(CANCIONES_DIR)), name="canciones")

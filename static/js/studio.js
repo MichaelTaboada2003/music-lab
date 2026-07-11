@@ -27,21 +27,64 @@ const fragPreviewClose = document.getElementById("fragPreviewClose");
 const fragPreviewLabel = document.getElementById("fragPreviewLabel");
 const fragPreviewTitle = document.getElementById("fragPreviewTitle");
 const fragPreviewArtist = document.getElementById("fragPreviewArtist");
+const lyricStyleInputs = document.querySelectorAll('input[name="videoLyricStyle"]');
+const studioTrackTitle = document.getElementById("studioTrackTitle");
+const studioTrackArtist = document.getElementById("studioTrackArtist");
+const studioArtworkImage = document.getElementById("studioArtworkImage");
+const studioArtworkFallback = document.getElementById("studioArtworkFallback");
+const studioPreviewEmpty = document.getElementById("studioPreviewEmpty");
 
 const studioListenVocalsBtn = document.getElementById("studioListenVocalsBtn");
 const studioVocalsAudio = document.getElementById("studioVocalsAudio");
-const syncQuality = document.getElementById("syncQuality");
-const syncQualityLabel = document.getElementById("syncQualityLabel");
-const syncQualityDetail = document.getElementById("syncQualityDetail");
-const syncReview = document.getElementById("syncReview");
-const syncReviewSummary = document.getElementById("syncReviewSummary");
-const syncReviewList = document.getElementById("syncReviewList");
-const syncReviewAudio = document.getElementById("syncReviewAudio");
-const syncReviewSaveBtn = document.getElementById("syncReviewSaveBtn");
 
 let videoStanzas = null;
 let fragPreviewRAF = null;
-let syncReviewData = null;
+
+const LYRIC_STYLE_LABELS = {
+  karaoke: "Karaoke terminal",
+  typing: "Escritura progresiva",
+};
+
+function selectedLyricStyle() {
+  return document.querySelector('input[name="videoLyricStyle"]:checked')?.value || "karaoke";
+}
+
+function applyPreviewLyricStyle() {
+  if (!fragPreviewStage) return;
+  const style = selectedLyricStyle();
+  fragPreviewStage.dataset.lyricStyle = style;
+  return LYRIC_STYLE_LABELS[style];
+}
+
+function _studioInitials(song) {
+  return (song?.title || song?.stem || "Music Lab")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+}
+
+function updateStudioTrackContext() {
+  const song = canciones.find((item) => item.stem === studioSongSelect.value);
+  if (!song) {
+    studioTrackTitle.textContent = "Elige una canción";
+    studioTrackArtist.textContent = "La previsualización aparecerá aquí";
+    studioArtworkFallback.textContent = "ML";
+    studioArtworkImage.hidden = true;
+    return;
+  }
+
+  studioTrackTitle.textContent = song.title || song.stem;
+  studioTrackArtist.textContent = song.artist || "Biblioteca local";
+  studioArtworkFallback.textContent = _studioInitials(song);
+  studioArtworkImage.hidden = true;
+  studioArtworkImage.alt = `Carátula de ${song.title || song.stem}`;
+  studioArtworkImage.onload = () => { studioArtworkImage.hidden = false; };
+  studioArtworkImage.onerror = () => { studioArtworkImage.hidden = true; };
+  studioArtworkImage.src = `/api/canciones/${encodeURIComponent(song.stem)}/cover`;
+}
 
 // ---- Opciones compartidas de sincronización --------------------------------
 
@@ -56,8 +99,6 @@ export function studioSyncOptions() {
 }
 
 export function applyStudioSync(stem, data) {
-  renderSyncQuality(data?.quality);
-  renderSyncReview(stem, data);
   if (data?.quality?.playable) renderStanzaPicker(data.stanzas);
   else {
     videoStanzas = null;
@@ -65,82 +106,11 @@ export function applyStudioSync(stem, data) {
   }
 }
 
-function renderSyncQuality(quality) {
-  if (!syncQuality || !syncQualityLabel || !syncQualityDetail) return;
-  if (!quality) {
-    syncQuality.hidden = true;
-    return;
-  }
-
-  const labels = {
-    alta: "Sincronía alta",
-    buena: "Sincronía buena",
-    revisar: "Sincronía a revisar",
-    baja: "Sincronía insuficiente",
-  };
-  const coverage = Math.round((quality.coverage || 0) * 100);
-  const repairs = quality.timing_repairs || 0;
-  const unresolved = quality.unresolved_words || 0;
-  const manual = quality.manual_words || 0;
-  syncQuality.hidden = false;
-  syncQuality.className = `sync-quality ${quality.label || "baja"}`;
-  syncQualityLabel.textContent = labels[quality.label] || labels.baja;
-  syncQualityDetail.textContent =
-    `${coverage}% de palabras ancladas al audio` +
-    (unresolved
-      ? ` · ${unresolved} por ajustar`
-      : repairs
-        ? ` · ${repairs} tiempos normalizados`
-        : " · tiempos consistentes") +
-    (manual ? ` · ${manual} ajustes manuales` : "");
-}
-
-function renderSyncReview(stem, data) {
-  syncReviewData = null;
-  syncReview.hidden = true;
-  syncReviewList.innerHTML = "";
-  if (!data?.stanzas) return;
-
-  const pending = [];
-  data.stanzas.forEach((stanza, stanzaIndex) => {
-    stanza.forEach((line, lineIndex) => {
-      (line.words || []).forEach((word, wordIndex) => {
-        if (!word.synced) pending.push({ stanzaIndex, lineIndex, wordIndex, word });
-      });
-    });
-  });
-  if (!pending.length) return;
-
-  syncReviewData = data;
-  syncReview.hidden = false;
-  syncReviewSummary.textContent = `Ajustar ${pending.length} palabra${pending.length === 1 ? "" : "s"} aproximada${pending.length === 1 ? "" : "s"}`;
-  const song = canciones.find((item) => item.stem === stem);
-  if (song) syncReviewAudio.src = `/canciones/${encodeURIComponent(song.nombre)}`;
-
-  pending.forEach(({ stanzaIndex, lineIndex, wordIndex, word }) => {
-    const row = document.createElement("div");
-    row.className = "sync-review-row";
-    row.dataset.stanza = stanzaIndex;
-    row.dataset.line = lineIndex;
-    row.dataset.word = wordIndex;
-    row.innerHTML = `
-      <strong>${word.text}</strong>
-      <label>Inicio <input class="sync-time-start" type="number" min="0" step="0.1" value="${Number(word.start).toFixed(1)}"></label>
-      <label>Fin <input class="sync-time-end" type="number" min="0" step="0.1" value="${Number(word.end).toFixed(1)}"></label>
-      <button type="button" class="sync-locate">Escuchar</button>
-    `;
-    const locate = row.querySelector(".sync-locate");
-    locate.addEventListener("click", () => {
-      syncReviewAudio.currentTime = Number(row.querySelector(".sync-time-start").value) || 0;
-      syncReviewAudio.play();
-    });
-    syncReviewList.appendChild(row);
-  });
-}
-
 export async function onStudioSongChange() {
   setStatus(videoStatus, "");
   if (fragPreviewStage) fragPreviewStage.hidden = true;
+  if (studioPreviewEmpty) studioPreviewEmpty.hidden = false;
+  updateStudioTrackContext();
   
   // Detener la voz si estaba reproduciéndose
   if (studioVocalsAudio) {
@@ -158,8 +128,6 @@ export async function onStudioSongChange() {
   if (fragStartInput) fragStartInput.value = "";
   if (fragEndInput) fragEndInput.value = "";
   videoStanzas = null;
-  renderSyncQuality(null);
-  renderSyncReview(null, null);
 
   try {
     const data = await apiGet(`/api/karaoke/${encodeURIComponent(stem)}`);
@@ -220,11 +188,18 @@ studioSyncBtn.addEventListener("click", async () => {
       onDone: (result) => {
         hideProgress("sync");
         const playable = result.quality?.playable;
+        const qualityLabels = {
+          alta: "Sincronía alta.",
+          buena: "Sincronía buena.",
+          revisar: "Sincronía a revisar.",
+          baja: "Sincronía insuficiente.",
+        };
+        const qualityStatus = qualityLabels[result.quality?.label] || qualityLabels.baja;
         setStatus(
           studioStatus,
           playable
-            ? "Sincronización lista. Revisa el indicador de calidad antes de exportar."
-            : "La sincronización se guardó, pero necesita revisión antes de karaoke o video.",
+            ? `Sincronización automática lista. ${qualityStatus}`
+            : `La sincronización automática terminó. ${qualityStatus} Revisa la letra antes de usar karaoke o video.`,
           playable ? "ok" : "error"
         );
         applyStudioSync(stem, result);
@@ -246,34 +221,6 @@ studioSyncBtn.addEventListener("click", async () => {
   } catch (e) {
     setStatus(studioStatus, `Error: ${e.message}`, "error");
     studioSyncBtn.disabled = false;
-  }
-});
-
-syncReviewSaveBtn.addEventListener("click", async () => {
-  const stem = studioSongSelect.value;
-  if (!stem || !syncReviewData) return;
-  const adjustments = [...syncReviewList.querySelectorAll(".sync-review-row")].map((row) => ({
-    stanza: Number(row.dataset.stanza),
-    line: Number(row.dataset.line),
-    word: Number(row.dataset.word),
-    start: Number(row.querySelector(".sync-time-start").value),
-    end: Number(row.querySelector(".sync-time-end").value),
-  }));
-  syncReviewSaveBtn.disabled = true;
-  try {
-    const result = await apiPost(`/api/karaoke/${encodeURIComponent(stem)}/ajustes`, { adjustments });
-    applyStudioSync(stem, result.datos);
-    refreshSongSelect(studioSongSelect);
-    const actual = canciones[indiceActual];
-    if (actual?.stem === stem) {
-      actual.tiene_sync = Boolean(result.calidad?.playable);
-      if (actual.tiene_sync) showKaraoke(stem, result.datos);
-    }
-    setStatus(studioStatus, "Ajustes guardados. La calidad se recalculó con tus tiempos.", "ok");
-  } catch (error) {
-    setStatus(studioStatus, `No se pudieron guardar los ajustes: ${error.message}`, "error");
-  } finally {
-    syncReviewSaveBtn.disabled = false;
   }
 });
 
@@ -353,10 +300,11 @@ fragPreviewBtn.addEventListener("click", async () => {
   fragPreviewTitle.textContent = titulo;
   fragPreviewArtist.textContent = artista ? `por ${artista}` : "";
   fragPreviewLabel.textContent =
-    `music-lab — vista previa (${formatSeconds(start)} — ${end !== null ? formatSeconds(end) : "fin"})`;
+    `music-lab — ${applyPreviewLyricStyle()} (${formatSeconds(start)} — ${end !== null ? formatSeconds(end) : "fin"})`;
 
   _renderTerminalLyrics(stanzas);
   fragPreviewStage.hidden = false;
+  if (studioPreviewEmpty) studioPreviewEmpty.hidden = true;
 
   // Audio: recargamos, buscamos al start y reproducimos. Sin controles
   // visibles porque el foco está en la terminal.
@@ -375,7 +323,9 @@ fragPreviewBtn.addEventListener("click", async () => {
 
   const seekAndPlay = () => {
     fragPreviewAudio.currentTime = start;
-    fragPreviewAudio.play();
+    // Algunos navegadores bloquean audio programático; la terminal sigue
+    // siendo útil como previsualización visual aunque el audio no arranque.
+    fragPreviewAudio.play().catch(() => {});
   };
   if (fragPreviewAudio.readyState >= 1) seekAndPlay();
   else fragPreviewAudio.addEventListener("loadedmetadata", seekAndPlay, { once: true });
@@ -383,8 +333,17 @@ fragPreviewBtn.addEventListener("click", async () => {
 
 fragPreviewClose.addEventListener("click", () => {
   fragPreviewStage.hidden = true;
+  if (studioPreviewEmpty) studioPreviewEmpty.hidden = false;
   fragPreviewAudio.pause();
   _stopFragLoop();
+});
+
+lyricStyleInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    if (fragPreviewStage.hidden) return;
+    const styleLabel = applyPreviewLyricStyle();
+    fragPreviewLabel.textContent = `music-lab — ${styleLabel}`;
+  });
 });
 
 // ---- Renderizado tipo terminal ----------------------------------------------
@@ -505,6 +464,7 @@ videoGenerateBtn.addEventListener("click", async () => {
     fragStartInput.value !== "" ? parseFloat(fragStartInput.value) : null;
   const end_time =
     fragEndInput.value !== "" ? parseFloat(fragEndInput.value) : null;
+  const lyric_style = selectedLyricStyle();
 
   videoGenerateBtn.disabled = true;
   setStatus(videoStatus, "");
@@ -521,6 +481,7 @@ videoGenerateBtn.addEventListener("click", async () => {
         artista,
         start_time,
         end_time,
+        lyric_style,
         separate_vocals: opts.separate_vocals,
         vad: opts.vad,
       }
@@ -549,6 +510,7 @@ export async function loadVideoGallery() {
   try {
     const data = await apiGet("/api/videos");
     videoGallery.innerHTML = "";
+    videoGallery.classList.toggle("has-overflow", data.videos.length > 4);
     data.videos.forEach((name) => {
       const card = document.createElement("div");
       card.className = "video-card";

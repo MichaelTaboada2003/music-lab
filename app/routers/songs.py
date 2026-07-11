@@ -9,10 +9,12 @@ Endpoints de canciones y letras:
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from audio_downloader import is_url, resolve_audio_source
 from library_metadata import get_metadata, save_metadata
+from library_artwork import invalidate_cover, resolve_cover
 from lyrics_sync import sync_cache_is_current
 
 from ..config import CANCIONES_DIR
@@ -104,7 +106,21 @@ def api_guardar_metadata(stem: str, payload: MetadataRequest):
         metadata = save_metadata(song.stem, payload.title, payload.artist)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    invalidate_cover(song)
     return {"status": "ok", "metadata": metadata}
+
+
+@router.get("/api/canciones/{stem}/cover")
+def api_cover_cancion(stem: str):
+    song = find_song(stem)
+    cover = resolve_cover(song)
+    if not cover:
+        raise HTTPException(404, "No hay carátula disponible")
+    return FileResponse(
+        cover,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @router.post("/api/letra/{stem}")

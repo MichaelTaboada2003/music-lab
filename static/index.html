@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Music Lab</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body data-active-view="player">
   <div class="app-shell">
     <canvas id="bgCanvas" class="bg-canvas"></canvas>
     <div class="bg-overlay"></div>
@@ -46,9 +46,18 @@
           <!-- Columna izquierda: artwork + controles + playlist -->
           <div class="np-controls">
             <div class="np-artwork" id="npArtwork">
-              <svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.25"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+              <div class="artwork-fallback" aria-hidden="true">
+                <span class="artwork-orbit artwork-orbit-a"></span>
+                <span class="artwork-orbit artwork-orbit-b"></span>
+                <span class="artwork-monogram" id="artworkMonogram">ML</span>
+              </div>
+              <img id="npArtworkImage" alt="Carátula de la canción actual" hidden />
             </div>
 
+            <div class="np-track-kicker">
+              <span>Ahora suena</span>
+              <span class="np-track-status" id="npTrackStatus">En pausa</span>
+            </div>
             <div class="np-meta">
               <div id="currentSongTitle">Sin canción</div>
               <div id="currentArtistName">Elige una canción</div>
@@ -79,24 +88,35 @@
               <input type="range" class="volume-slider" min="0" max="1" step="0.1" value="0.5" />
             </div>
 
-            <div class="np-soundcheck" id="soundcheckPanel">
-              <div class="soundcheck-copy">
-                <span class="soundcheck-label">Soundcheck</span>
-                <span class="soundcheck-detail" id="soundcheckDetail">Sin calibrar</span>
-              </div>
-              <button id="soundcheckBtn" class="btn-ghost" type="button">Analizar</button>
-            </div>
+            <details class="np-tools" id="playerTools">
+              <summary>
+                <span>Audio e información</span>
+                <span class="np-tools-summary">Soundcheck · ficha</span>
+              </summary>
+              <div class="np-tools-body">
+                <div class="np-soundcheck" id="soundcheckPanel">
+                  <div class="soundcheck-copy">
+                    <span class="soundcheck-label">Soundcheck</span>
+                    <span class="soundcheck-detail" id="soundcheckDetail">Sin calibrar</span>
+                  </div>
+                  <button id="soundcheckBtn" class="btn-ghost" type="button">Analizar</button>
+                </div>
 
-            <details class="np-metadata" id="metadataPanel">
-              <summary>Editar ficha de la canción</summary>
-              <div class="metadata-fields">
-                <label>Título <input id="metadataTitle" type="text" maxlength="160" /></label>
-                <label>Artista <input id="metadataArtist" type="text" maxlength="160" /></label>
+                <div class="np-metadata" id="metadataPanel">
+                  <div class="metadata-fields">
+                    <label>Título <input id="metadataTitle" type="text" maxlength="160" /></label>
+                    <label>Artista <input id="metadataArtist" type="text" maxlength="160" /></label>
+                  </div>
+                  <button id="metadataSaveBtn" class="btn-ghost" type="button">Guardar ficha</button>
+                  <span class="metadata-status" id="metadataStatus" aria-live="polite"></span>
+                </div>
               </div>
-              <button id="metadataSaveBtn" class="btn-ghost" type="button">Guardar ficha</button>
-              <span class="metadata-status" id="metadataStatus" aria-live="polite"></span>
             </details>
 
+            <div class="library-head">
+              <span>Tu biblioteca</span>
+              <span id="libraryCount">0 canciones</span>
+            </div>
             <div class="playlist-search">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
               <input type="text" id="playlistSearch" placeholder="Buscar en tu biblioteca..." />
@@ -108,6 +128,10 @@
 
           <!-- Columna derecha: letra / karaoke -->
           <div class="np-lyrics">
+            <div class="np-lyrics-chrome">
+              <span>Letra en vivo</span>
+              <span id="lyricsMode">Sin letra</span>
+            </div>
             <div class="karaoke-stage" id="karaokeStage" hidden>
               <div class="karaoke-text" id="karaokeText"></div>
             </div>
@@ -143,6 +167,8 @@
           estilo TikTok. La letra que sincronices aquí también aparece en el Reproductor.
         </p>
 
+        <div class="studio-layout">
+          <div class="studio-workflow">
         <details class="add-song">
           <summary>+ Añadir canción por URL</summary>
           <form id="downloadForm" class="form-card">
@@ -213,17 +239,6 @@
             <button id="studioSyncBtn">Sincronizar</button>
             <button id="studioListenVocalsBtn" class="btn-ghost" hidden>Escuchar voz</button>
           </div>
-          <div class="sync-quality" id="syncQuality" hidden>
-            <span class="sync-quality-label" id="syncQualityLabel"></span>
-            <span class="sync-quality-detail" id="syncQualityDetail"></span>
-          </div>
-          <details class="sync-review" id="syncReview" hidden>
-            <summary id="syncReviewSummary">Ajustar palabras aproximadas</summary>
-            <p class="hint">Escucha el fragmento y ajusta solo las palabras que no quedaron ancladas al audio.</p>
-            <audio id="syncReviewAudio" controls preload="metadata"></audio>
-            <div class="sync-review-list" id="syncReviewList"></div>
-            <button id="syncReviewSaveBtn" class="btn-ghost" type="button">Guardar ajustes</button>
-          </details>
           <audio id="studioVocalsAudio" hidden></audio>
           <div class="job-progress" id="syncProgress" hidden>
             <div class="job-progress-head">
@@ -259,6 +274,22 @@
           <label>Nombre del archivo de salida</label>
           <input type="text" id="videoOutputName" placeholder="Se usará el nombre de la canción si lo dejas vacío" />
 
+          <fieldset class="lyric-style-picker">
+            <legend>Formato de letra</legend>
+            <div class="lyric-style-options">
+              <label class="lyric-style-option">
+                <input type="radio" name="videoLyricStyle" value="karaoke" checked />
+                <span class="lyric-style-name">Karaoke terminal</span>
+                <span class="lyric-style-description">Formato actual: mantiene visible la estrofa y resalta la palabra activa.</span>
+              </label>
+              <label class="lyric-style-option">
+                <input type="radio" name="videoLyricStyle" value="typing" />
+                <span class="lyric-style-name">Escritura progresiva</span>
+                <span class="lyric-style-description">Formato clásico: las palabras aparecen una a una mientras avanza la canción.</span>
+              </label>
+            </div>
+          </fieldset>
+
           <div class="section-sep">
             <span>Fragmento a exportar</span>
           </div>
@@ -287,27 +318,6 @@
 
           <audio id="fragPreviewAudio" hidden></audio>
 
-          <!-- Vista previa: replica el look de terminal del video final.
-               Ventana con barra de título macOS, prompt verde, título amarillo,
-               letra cian monoespaciada revelada palabra a palabra, cursor parpadeante. -->
-          <div class="term-stage" id="fragPreviewStage" hidden>
-            <div class="term-titlebar">
-              <span class="term-dot term-dot-red"></span>
-              <span class="term-dot term-dot-yellow"></span>
-              <span class="term-dot term-dot-green"></span>
-              <span class="term-label" id="fragPreviewLabel">music-lab — python lyrics.py</span>
-              <button class="term-close" id="fragPreviewClose" title="Cerrar">×</button>
-            </div>
-            <div class="term-body">
-              <div class="term-header">
-                <span class="term-prompt">&gt;</span>
-                <span class="term-title" id="fragPreviewTitle"></span>
-                <div class="term-artist" id="fragPreviewArtist"></div>
-              </div>
-              <div class="term-lyrics" id="fragPreviewLyrics"></div>
-            </div>
-          </div>
-
           <div class="job-progress" id="videoProgress" hidden>
             <div class="job-progress-head">
               <span class="job-progress-phase" id="videoProgressPhase"></span>
@@ -316,6 +326,45 @@
             <div class="job-progress-bar"><div class="job-progress-fill" id="videoProgressFill"></div></div>
           </div>
           <div id="videoStatus" class="status-box"></div>
+        </div>
+          </div>
+
+          <aside class="studio-preview-rail" aria-label="Resumen de video">
+            <div class="studio-rail-kicker">Vista de exportación</div>
+            <div class="studio-track-card" id="studioTrackCard">
+              <div class="studio-artwork">
+                <div class="studio-artwork-fallback" id="studioArtworkFallback">ML</div>
+                <img id="studioArtworkImage" alt="Carátula de la canción seleccionada" hidden />
+              </div>
+              <div>
+                <div class="studio-track-title" id="studioTrackTitle">Elige una canción</div>
+                <div class="studio-track-artist" id="studioTrackArtist">La previsualización aparecerá aquí</div>
+              </div>
+            </div>
+            <div class="studio-preview-empty" id="studioPreviewEmpty">
+              <span class="studio-preview-mark">01</span>
+              <strong>Prepara el momento</strong>
+              <p>Sincroniza la letra, elige una estrofa y escucha cómo se verá el clip.</p>
+            </div>
+            <!-- Replica el look de la exportación final y permanece visible al ajustar el fragmento. -->
+            <div class="term-stage" id="fragPreviewStage" hidden>
+              <div class="term-titlebar">
+                <span class="term-dot term-dot-red"></span>
+                <span class="term-dot term-dot-yellow"></span>
+                <span class="term-dot term-dot-green"></span>
+                <span class="term-label" id="fragPreviewLabel">music-lab — vista previa</span>
+                <button class="term-close" id="fragPreviewClose" title="Cerrar">×</button>
+              </div>
+              <div class="term-body">
+                <div class="term-header">
+                  <span class="term-prompt">&gt;</span>
+                  <span class="term-title" id="fragPreviewTitle"></span>
+                  <div class="term-artist" id="fragPreviewArtist"></div>
+                </div>
+                <div class="term-lyrics" id="fragPreviewLyrics"></div>
+              </div>
+            </div>
+          </aside>
         </div>
 
         <h2>Videos generados</h2>
@@ -364,6 +413,18 @@
       </section>
 
     </main>
+
+    <div class="mini-player" id="miniPlayer" hidden>
+      <div class="mini-artwork">
+        <span id="miniArtworkFallback">ML</span>
+        <img id="miniArtworkImage" alt="Carátula de la canción actual" hidden />
+      </div>
+      <div class="mini-copy">
+        <span id="miniSongTitle">Sin canción</span>
+        <span id="miniArtistName">Music Lab</span>
+      </div>
+      <button class="mini-play" id="miniPlayBtn" type="button" title="Reproducir o pausar"></button>
+    </div>
   </div>
 
   <script type="module" src="/static/js/main.js"></script>

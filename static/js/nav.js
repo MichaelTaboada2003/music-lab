@@ -25,6 +25,7 @@ export function activateView(view) {
   views.forEach((v) => v.classList.remove("active"));
   btn.classList.add("active");
   section.classList.add("active");
+  document.body.dataset.activeView = view;
 
   if (view === "lyrics") refreshSongSelect(lyricsSongSelect, onLyricsSongChange);
   if (view === "studio") {

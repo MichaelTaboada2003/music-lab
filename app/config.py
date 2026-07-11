@@ -17,8 +17,9 @@ LETRAS_DIR = BASE_DIR / "letras"
 VIDEOS_DIR = BASE_DIR / "videos"
 STATIC_DIR = BASE_DIR / "static"
 VOCALS_DIR = BASE_DIR / "vocals"
+COVERS_DIR = BASE_DIR / ".covers"
 
-for _dir in (CANCIONES_DIR, LETRAS_DIR, VIDEOS_DIR, STATIC_DIR):
+for _dir in (CANCIONES_DIR, LETRAS_DIR, VIDEOS_DIR, STATIC_DIR, COVERS_DIR):
     _dir.mkdir(parents=True, exist_ok=True)
 
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".webm", ".ogg"}
