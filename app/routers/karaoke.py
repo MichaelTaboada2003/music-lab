@@ -20,7 +20,15 @@ from lyrics_sync import (
 )
 
 from ..jobs import start_job
-from ..utils import find_song, lyrics_path_for, sync_cache_path_for, vad_value, vocals_path_for
+from ..utils import (
+    cached_stem_is_current,
+    find_song,
+    instrumental_path_for,
+    lyrics_path_for,
+    sync_cache_path_for,
+    vad_value,
+    vocals_path_for,
+)
 
 router = APIRouter(tags=["karaoke"])
 
@@ -31,14 +39,15 @@ def api_karaoke_cache(stem: str):
     lyrics_path = lyrics_path_for(stem)
     cache = sync_cache_path_for(stem)
     tiene_vocals = vocals_path_for(stem).is_file()
+    tiene_pista = cached_stem_is_current(instrumental_path_for(stem), song)
     if not cache.is_file():
-        return {"existe": False, "actual": False, "tiene_vocals": tiene_vocals}
+        return {"existe": False, "actual": False, "tiene_vocals": tiene_vocals, "tiene_pista": tiene_pista}
 
     try:
         with open(cache, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return {"existe": False, "actual": False, "stale": True, "tiene_vocals": tiene_vocals}
+        return {"existe": False, "actual": False, "stale": True, "tiene_vocals": tiene_vocals, "tiene_pista": tiene_pista}
 
     actual = lyrics_path.is_file() and sync_cache_is_current(
         data, str(song), str(lyrics_path)
@@ -53,6 +62,7 @@ def api_karaoke_cache(stem: str):
         "datos": data if actual else None,
         "calidad": quality,
         "tiene_vocals": tiene_vocals,
+        "tiene_pista": tiene_pista,
     }
 
 
@@ -62,6 +72,25 @@ class SyncRequest(BaseModel):
     force: bool = False
     vad: Optional[str] = "auditok"
     separate_vocals: bool = True
+
+
+@router.post("/api/karaoke/{stem}/pista")
+def api_preparar_pista(stem: str):
+    """Prepara la instrumental local para el modo karaoke del reproductor."""
+    song = find_song(stem)
+    if cached_stem_is_current(instrumental_path_for(stem), song):
+        return {"lista": True}
+
+    def _tarea(progress_cb):
+        from vocal_separator import separate_instrumental
+
+        progress_cb("Separando voz e instrumental (Demucs)", None)
+        separate_instrumental(str(song))
+        progress_cb("Pista instrumental lista", 100)
+        return {"lista": True}
+
+    job_id = start_job(_tarea, key=f"instrumental:{stem}")
+    return {"lista": False, "job_id": job_id}
 
 
 class TimingAdjustment(BaseModel):

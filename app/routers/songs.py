@@ -20,7 +20,7 @@ from lyrics_sync import sync_cache_is_current
 from ..config import CANCIONES_DIR
 from ..jobs import start_job
 from ..utils import (
-    find_song, list_songs, lyrics_path_for, obtener_duracion,
+    cached_stem_is_current, find_song, instrumental_path_for, list_songs, lyrics_path_for, obtener_duracion,
     sync_cache_path_for,
 )
 
@@ -56,6 +56,7 @@ def api_canciones():
             **metadata,
             "tiene_letra": lyrics_path_for(p.stem).is_file(),
             "tiene_sync": _has_playable_sync(p),
+            "tiene_pista": cached_stem_is_current(instrumental_path_for(p.stem), p),
         })
     return {"canciones": canciones}
 

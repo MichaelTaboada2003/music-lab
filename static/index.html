@@ -88,6 +88,17 @@
               <input type="range" class="volume-slider" min="0" max="1" step="0.1" value="0.5" />
             </div>
 
+            <div class="np-karaoke-mode" id="karaokeModeControl">
+              <div class="np-karaoke-copy">
+                <span class="np-karaoke-label">Modo karaoke</span>
+                <span class="np-karaoke-detail" id="karaokeModeDetail">Pista original</span>
+              </div>
+              <button class="np-karaoke-toggle" id="karaokeModeBtn" type="button" aria-pressed="false" title="Reproducir la instrumental sin voz">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l10-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="16" cy="16" r="3"></circle><path d="M3 4l18 16"></path></svg>
+                <span id="karaokeModeLabel">Preparar</span>
+              </button>
+            </div>
+
             <details class="np-tools" id="playerTools">
               <summary>
                 <span>Audio e información</span>
@@ -104,8 +115,14 @@
 
                 <div class="np-metadata" id="metadataPanel">
                   <div class="metadata-fields">
-                    <label>Título <input id="metadataTitle" type="text" maxlength="160" /></label>
-                    <label>Artista <input id="metadataArtist" type="text" maxlength="160" /></label>
+                    <label class="metadata-field">
+                      <span class="metadata-field-label"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l10-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="16" cy="16" r="3"></circle></svg> Título</span>
+                      <input id="metadataTitle" type="text" maxlength="160" autocomplete="off" placeholder="Nombre de la canción" />
+                    </label>
+                    <label class="metadata-field">
+                      <span class="metadata-field-label"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c.7-4 3.2-6 8-6s7.3 2 8 6"></path></svg> Artista</span>
+                      <input id="metadataArtist" type="text" maxlength="160" autocomplete="off" placeholder="Intérprete o grupo" />
+                    </label>
                   </div>
                   <button id="metadataSaveBtn" class="btn-ghost" type="button">Guardar ficha</button>
                   <span class="metadata-status" id="metadataStatus" aria-live="polite"></span>

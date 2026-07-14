@@ -44,10 +44,17 @@ const metadataTitle = document.getElementById("metadataTitle");
 const metadataArtist = document.getElementById("metadataArtist");
 const metadataSaveBtn = document.getElementById("metadataSaveBtn");
 const metadataStatus = document.getElementById("metadataStatus");
+const karaokeModeBtn = document.getElementById("karaokeModeBtn");
+const karaokeModeLabel = document.getElementById("karaokeModeLabel");
+const karaokeModeDetail = document.getElementById("karaokeModeDetail");
+const karaokeModeControl = document.getElementById("karaokeModeControl");
 
 let isDragging = false;
 let newTime = 0;
 let soundcheckStem = null;
+let playbackMode = "original";
+let preparingInstrumental = false;
+let karaokeModeError = "";
 
 export const playIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" stroke-width="2"><path d="M10 18l6 -6l-6 -6v12"></path></svg>`;
 export const pauseIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" stroke-width="2"><path d="M6 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"></path><path d="M14 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"></path></svg>`;
@@ -85,6 +92,7 @@ export function cargarCancion(index) {
     _setTrackGain(0);
     _renderSoundcheck(null);
     _renderMetadata(null);
+    _resetKaraokeMode();
     _loadPlayerLyrics(null);
     return;
   }
@@ -92,6 +100,7 @@ export function cargarCancion(index) {
   currentArtistName.textContent = cancion.artist || "Biblioteca local";
   _setArtwork(cancion);
   _syncMiniPlayer(cancion);
+  _resetKaraokeMode();
   audioPlayer.src = `/canciones/${encodeURIComponent(cancion.nombre)}`;
   window.dispatchEvent(
     new CustomEvent("music-lab:songchange", {
@@ -106,6 +115,124 @@ export function cargarCancion(index) {
   _loadSoundcheck(cancion);
   _renderMetadata(cancion);
   _loadPlayerLyrics(cancion);
+}
+
+function _instrumentalSource(song) {
+  return `/vocals/${encodeURIComponent(song.stem)}.instrumental.wav`;
+}
+
+function _resetKaraokeMode() {
+  playbackMode = "original";
+  preparingInstrumental = false;
+  karaokeModeError = "";
+  _renderKaraokeMode();
+}
+
+function _renderKaraokeMode() {
+  if (!karaokeModeBtn || !karaokeModeLabel || !karaokeModeDetail) return;
+  const song = canciones[indiceActual];
+  const hasSong = Boolean(song);
+  const hasInstrumental = Boolean(song?.tiene_pista);
+  const active = playbackMode === "instrumental";
+
+  karaokeModeControl?.classList.toggle("is-active", active);
+  karaokeModeControl?.classList.toggle("is-preparing", preparingInstrumental);
+  karaokeModeBtn.disabled = !hasSong || preparingInstrumental;
+  karaokeModeBtn.setAttribute("aria-pressed", String(active));
+
+  if (!hasSong) {
+    karaokeModeLabel.textContent = "Sin canción";
+    karaokeModeDetail.textContent = "Elige una canción";
+  } else if (preparingInstrumental) {
+    karaokeModeLabel.textContent = "Preparando";
+    karaokeModeDetail.textContent = "Separando voz e instrumental...";
+  } else if (active) {
+    karaokeModeLabel.textContent = "Desactivar";
+    karaokeModeDetail.textContent = "Instrumental sin voz";
+  } else if (karaokeModeError) {
+    karaokeModeLabel.textContent = "Reintentar";
+    karaokeModeDetail.textContent = karaokeModeError;
+  } else {
+    karaokeModeLabel.textContent = hasInstrumental ? "Activar" : "Preparar";
+    karaokeModeDetail.textContent = hasInstrumental ? "Pista original" : "Se prepara una sola vez";
+  }
+}
+
+function _swapPlaybackSource(song, mode) {
+  const currentTime = audioPlayer.currentTime || 0;
+  const wasPlaying = !audioPlayer.paused;
+  const source = mode === "instrumental"
+    ? _instrumentalSource(song)
+    : `/canciones/${encodeURIComponent(song.nombre)}`;
+
+  return new Promise((resolve) => {
+    const restorePlayback = async () => {
+      audioPlayer.removeEventListener("loadedmetadata", restorePlayback);
+      if (Number.isFinite(audioPlayer.duration)) {
+        audioPlayer.currentTime = Math.min(currentTime, Math.max(0, audioPlayer.duration - 0.05));
+      }
+      if (wasPlaying) {
+        try {
+          await audioPlayer.play();
+        } catch {
+          // La interfaz conserva el estado; el navegador puede requerir un nuevo gesto.
+        }
+      }
+      resolve();
+    };
+    audioPlayer.addEventListener("loadedmetadata", restorePlayback, { once: true });
+    audioPlayer.src = source;
+    audioPlayer.load();
+  });
+}
+
+async function _toggleKaraokeMode() {
+  const song = canciones[indiceActual];
+  if (!song || preparingInstrumental) return;
+
+  if (playbackMode === "instrumental") {
+    playbackMode = "original";
+    _renderKaraokeMode();
+    await _swapPlaybackSource(song, playbackMode);
+    return;
+  }
+
+  if (!song.tiene_pista) {
+    karaokeModeError = "";
+    preparingInstrumental = true;
+    _renderKaraokeMode();
+    try {
+      const result = await apiPost(`/api/karaoke/${encodeURIComponent(song.stem)}/pista`);
+      if (!result.lista) {
+        await new Promise((resolve, reject) => {
+          pollJob(result.job_id, {
+            onDone: resolve,
+            onError: reject,
+            onTick: (job) => {
+              if (canciones[indiceActual]?.stem === song.stem) {
+                karaokeModeDetail.textContent = job.progress?.phase || "Separando voz e instrumental...";
+              }
+            },
+          });
+        });
+      }
+      if (canciones[indiceActual]?.stem !== song.stem) return;
+      song.tiene_pista = true;
+    } catch (error) {
+      if (canciones[indiceActual]?.stem === song.stem) {
+        karaokeModeError = `No se pudo preparar: ${error.message || error}`;
+      }
+      return;
+    } finally {
+      preparingInstrumental = false;
+      _renderKaraokeMode();
+    }
+  }
+
+  if (canciones[indiceActual]?.stem !== song.stem) return;
+  playbackMode = "instrumental";
+  _renderKaraokeMode();
+  await _swapPlaybackSource(song, playbackMode);
 }
 
 function _renderMetadata(cancion) {
@@ -226,7 +353,11 @@ function _syncMiniPlayer(song) {
 function _updatePlaybackChrome() {
   const playing = !audioPlayer.paused && Boolean(audioPlayer.src);
   npArtwork?.classList.toggle("playing", playing);
-  if (npTrackStatus) npTrackStatus.textContent = playing ? "Reproduciendo" : "En pausa";
+  if (npTrackStatus) {
+    npTrackStatus.textContent = playbackMode === "instrumental"
+      ? (playing ? "Karaoke activo" : "Karaoke listo")
+      : (playing ? "Reproduciendo" : "En pausa");
+  }
   if (miniPlayBtn) {
     miniPlayBtn.innerHTML = playing ? pauseIcon : playIcon;
     miniPlayBtn.setAttribute("aria-label", playing ? "Pausar" : "Reproducir");
@@ -492,6 +623,7 @@ playBtn.addEventListener("click", () => {
 });
 
 miniPlayBtn?.addEventListener("click", () => playBtn.click());
+karaokeModeBtn?.addEventListener("click", _toggleKaraokeMode);
 
 audioPlayer.addEventListener("play", _updatePlaybackChrome);
 audioPlayer.addEventListener("pause", _updatePlaybackChrome);

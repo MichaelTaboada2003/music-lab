@@ -51,6 +51,18 @@ def vocals_path_for(stem: str) -> Path:
     return VOCALS_DIR / f"{stem}.vocals.wav"
 
 
+def instrumental_path_for(stem: str) -> Path:
+    return VOCALS_DIR / f"{stem}.instrumental.wav"
+
+
+def cached_stem_is_current(stem_path: Path, song_path: Path) -> bool:
+    """Comprueba que un stem cacheado sigue perteneciendo al audio actual."""
+    try:
+        return stem_path.is_file() and stem_path.stat().st_mtime >= song_path.stat().st_mtime
+    except OSError:
+        return False
+
+
 def list_songs():
     if not CANCIONES_DIR.is_dir():
         return []
