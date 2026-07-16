@@ -58,41 +58,85 @@
   --art-hue: 142;
 }
 
-/* Visualizador ambiental de fondo (canvas Web Audio). Va fijo detrás de todo,
-   sin capturar clics y con opacidad controlada para no competir con el karaoke. */
+/* Fondo inmersivo: la carátula aporta identidad, el canvas aporta movimiento y
+   el overlay mantiene el contraste. Las tres capas exceden el viewport para
+   que el blur y el overscroll nunca revelen bordes negros. */
+.bg-artwork {
+  position: fixed;
+  inset: -10vmax;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate3d(
+      var(--ambient-local-x),
+      var(--ambient-local-y),
+      0
+    )
+    scale(calc(1.06 + var(--ambient-beat-scale)));
+  transform-origin: center;
+  transition: opacity 700ms ease, transform 180ms linear;
+  will-change: transform, opacity;
+}
+
+.bg-artwork-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  visibility: hidden;
+  filter: blur(58px) saturate(1.34) contrast(1.04);
+  transform: scale(1.12);
+  transition:
+    opacity 900ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    visibility 0s linear 900ms;
+}
+
+.bg-artwork-layer.is-active {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+body.ambient-playing .bg-artwork.has-artwork {
+  opacity: calc(0.20 + var(--ambient-intensity) * 0.12);
+}
+
 .bg-canvas {
   position: fixed;
   inset: 0;
-  width: 100vw;
-  height: 100vh;
+  width: 100dvw;
+  min-width: 100vw;
+  height: 100dvh;
+  min-height: 100vh;
   z-index: 0;
   pointer-events: none;
   opacity: 0;
-  transform: scale(1.03);
+  transform: scale(1.075);
   transform-origin: center;
   will-change: transform, opacity;
   transition: opacity 320ms ease;
 }
 
 body.ambient-playing .bg-canvas {
-  opacity: 0.86;
+  opacity: 0.88;
 }
 
 /* Capa oscura por encima del canvas para preservar legibilidad. Deja pasar
    la atmósfera del visualizador pero devuelve contraste al contenido. */
 .bg-overlay {
   position: fixed;
-  inset: 0;
+  inset: -5vmax;
   z-index: 0;
   pointer-events: none;
   opacity: 0;
   background:
-    radial-gradient(1320px 760px at 12% 8%, rgba(var(--ambient-primary), 0.24) 0%, transparent 56%),
-    radial-gradient(1120px 720px at 88% 16%, rgba(var(--ambient-secondary), 0.22) 0%, transparent 54%),
-    radial-gradient(960px 620px at 50% 100%, rgba(var(--ambient-tertiary), 0.20) 0%, transparent 56%),
-    radial-gradient(circle at 52% 42%, rgba(6, 8, 10, 0.06) 0%, rgba(6, 8, 10, 0.25) 38%, rgba(6, 8, 10, 0.55) 74%, rgba(6, 8, 10, 0.77) 100%),
-    linear-gradient(180deg, rgba(5, 6, 8, 0.16), rgba(5, 6, 8, 0.58));
-  transition: opacity 280ms ease;
+    radial-gradient(80% 110% at 0% 52%, rgba(var(--ambient-primary), 0.16) 0%, transparent 72%),
+    radial-gradient(80% 110% at 100% 48%, rgba(var(--ambient-secondary), 0.15) 0%, transparent 72%),
+    radial-gradient(76% 82% at 50% 112%, rgba(var(--ambient-tertiary), 0.13) 0%, transparent 68%);
+  transition: opacity 420ms ease;
 }
 
 body.ambient-playing .bg-overlay {
@@ -108,25 +152,25 @@ body.ambient-low-power .bg-overlay::before {
 .bg-overlay::before {
   content: "";
   position: absolute;
-  inset: -12%;
+  inset: -8%;
   background:
     conic-gradient(
       from 0deg at 50% 45%,
-      rgba(var(--ambient-primary), 0.30) 0deg,
-      rgba(var(--ambient-secondary), 0.17) 104deg,
+      rgba(var(--ambient-primary), 0.24) 0deg,
+      rgba(var(--ambient-secondary), 0.14) 104deg,
       transparent 176deg,
-      rgba(var(--ambient-tertiary), 0.26) 248deg,
+      rgba(var(--ambient-tertiary), 0.20) 248deg,
       transparent 330deg,
-      rgba(var(--ambient-primary), 0.30) 360deg
+      rgba(var(--ambient-primary), 0.24) 360deg
     );
-  opacity: calc(0.34 + var(--ambient-intensity) * 0.40);
-  filter: blur(68px) saturate(1.16);
+  opacity: calc(0.24 + var(--ambient-intensity) * 0.28);
+  filter: blur(72px) saturate(1.12);
   transform: translate(var(--ambient-shift-x), var(--ambient-shift-y))
     rotate(var(--ambient-rotate))
     scale(calc(1 + var(--ambient-beat-scale)));
   transform-origin: center;
   will-change: transform, opacity;
-  transition: transform 110ms linear, opacity 110ms linear;
+  transition: transform 180ms linear, opacity 180ms linear;
 }
 
 .bg-overlay::after {
@@ -134,7 +178,8 @@ body.ambient-low-power .bg-overlay::before {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(940px 580px at 52% 42%, rgba(6, 8, 10, 0.02) 0%, rgba(6, 8, 10, 0.08) 24%, rgba(6, 8, 10, 0.22) 44%, rgba(6, 8, 10, 0.40) 68%, rgba(6, 8, 10, 0.50) 100%);
+    radial-gradient(ellipse at 52% 44%, rgba(6, 8, 10, 0.03) 0%, rgba(6, 8, 10, 0.08) 46%, rgba(6, 8, 10, 0.22) 82%, rgba(6, 8, 10, 0.28) 100%),
+    linear-gradient(180deg, rgba(6, 8, 10, 0.10), rgba(6, 8, 10, 0.26));
 }
 
 /* Reset */
@@ -148,6 +193,7 @@ body {
   font-family: var(--font);
   color: var(--text);
   min-height: 100vh;
+  overflow-x: hidden;
   background:
     radial-gradient(1100px 560px at 12% -12%, #1a1f1c 0%, transparent 58%),
     radial-gradient(900px 480px at 108% -6%, #15191c 0%, transparent 52%),
@@ -156,15 +202,23 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .bg-artwork,
+  .bg-overlay::before,
+  .now-playing::before {
+    transition-duration: 600ms;
+  }
+
   body.ambient-playing .bg-canvas {
-    opacity: 0.42;
+    opacity: 0.38;
   }
 }
 
 /* ---------- App shell ---------- */
 .app-shell {
   display: flex;
+  width: 100%;
   min-height: 100vh;
+  overflow-x: clip;
 }
 
 .sidebar {
@@ -238,8 +292,9 @@ body {
 
 .content {
   flex: 1;
+  min-width: 0;
   padding: 40px 48px;
-  max-width: 980px;
+  max-width: none;
   position: relative;
   z-index: 1;
   isolation: isolate;
@@ -1226,19 +1281,18 @@ h2 {
   pointer-events: none;
   border-radius: 40px;
   background:
-    radial-gradient(46% 40% at 22% 38%, rgba(var(--ambient-primary), 0.34) 0%, transparent 74%),
-    radial-gradient(44% 38% at 76% 34%, rgba(var(--ambient-secondary), 0.28) 0%, transparent 72%),
-    radial-gradient(42% 36% at 54% 78%, rgba(var(--ambient-tertiary), 0.25) 0%, transparent 74%);
+    radial-gradient(48% 44% at 24% 40%, rgba(var(--ambient-primary), 0.24) 0%, transparent 74%),
+    radial-gradient(46% 42% at 76% 40%, rgba(var(--ambient-secondary), 0.20) 0%, transparent 74%);
   opacity: 0;
-  filter: blur(78px) saturate(1.12);
+  filter: blur(82px) saturate(1.08);
   transform: translate(var(--ambient-local-x), var(--ambient-local-y))
     scale(calc(1 + var(--ambient-beat-scale)));
   will-change: transform, opacity;
-  transition: transform 110ms linear, opacity 280ms ease;
+  transition: transform 170ms linear, opacity 280ms ease;
 }
 
 body.ambient-playing .now-playing::before {
-  opacity: calc(0.56 + var(--ambient-intensity) * 0.28);
+  opacity: calc(0.34 + var(--ambient-intensity) * 0.20);
 }
 
 .now-playing > * {
@@ -1277,11 +1331,11 @@ body.ambient-playing .now-playing::before {
   opacity: 0;
   transform: translate(var(--ambient-local-x), var(--ambient-local-y));
   will-change: transform, opacity;
-  transition: transform 110ms linear, opacity 280ms ease;
+  transition: transform 170ms linear, opacity 280ms ease;
 }
 
 body.ambient-playing .np-controls::before {
-  opacity: calc(0.34 + var(--ambient-intensity) * 0.22);
+  opacity: calc(0.08 + var(--ambient-intensity) * 0.08);
 }
 
 body.ambient-low-power .np-controls::before,
@@ -1733,11 +1787,11 @@ body.ambient-low-power .np-lyrics::before {
   transform: translate(var(--ambient-local-x), var(--ambient-local-y))
     scale(calc(1 + var(--ambient-beat-scale) * 0.8));
   will-change: transform, opacity;
-  transition: transform 110ms linear, opacity 280ms ease;
+  transition: transform 170ms linear, opacity 280ms ease;
 }
 
 body.ambient-playing .np-lyrics::before {
-  opacity: calc(0.28 + var(--ambient-intensity) * 0.22);
+  opacity: calc(0.06 + var(--ambient-intensity) * 0.07);
 }
 
 /* El escenario de karaoke llena toda la columna */

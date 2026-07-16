@@ -108,6 +108,8 @@ export function cargarCancion(index) {
         title: cancion.title || cancion.stem,
         artist: cancion.artist || "",
         filename: cancion.nombre,
+        stem: cancion.stem,
+        coverUrl: `/api/canciones/${encodeURIComponent(cancion.stem)}/cover`,
       },
     })
   );
@@ -281,29 +283,62 @@ function _setFallbackPalette(song) {
   document.documentElement.style.setProperty("--track-primary-glow", `hsl(${hue} 82% 58% / 0.30)`);
 }
 
+function _colorDistance(a, b) {
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
 function _sampleArtworkPalette(image) {
   const canvas = document.createElement("canvas");
-  canvas.width = 20;
-  canvas.height = 20;
+  canvas.width = 28;
+  canvas.height = 28;
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) return;
   try {
-    context.drawImage(image, 0, 0, 20, 20);
-    const pixels = context.getImageData(0, 0, 20, 20).data;
-    let red = 0;
-    let green = 0;
-    let blue = 0;
-    let count = 0;
+    context.drawImage(image, 0, 0, 28, 28);
+    const pixels = context.getImageData(0, 0, 28, 28).data;
+    const buckets = new Map();
+
     for (let i = 0; i < pixels.length; i += 4) {
-      const max = Math.max(pixels[i], pixels[i + 1], pixels[i + 2]);
-      const min = Math.min(pixels[i], pixels[i + 1], pixels[i + 2]);
-      if (max < 42 || max - min < 28) continue;
-      red += pixels[i];
-      green += pixels[i + 1];
-      blue += pixels[i + 2];
-      count += 1;
+      const color = [pixels[i], pixels[i + 1], pixels[i + 2]];
+      const max = Math.max(...color);
+      const min = Math.min(...color);
+      const chroma = max - min;
+      const luminance = color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722;
+      if (pixels[i + 3] < 220 || luminance < 28 || luminance > 238 || chroma < 22) continue;
+
+      // Cuantizar evita que un degradado produzca decenas de tonos casi iguales.
+      const key = color.map((channel) => Math.round(channel / 40) * 40).join(":");
+      const bucket = buckets.get(key) || { sum: [0, 0, 0], weight: 0 };
+      const weight = 1 + chroma / 80;
+      bucket.sum[0] += color[0] * weight;
+      bucket.sum[1] += color[1] * weight;
+      bucket.sum[2] += color[2] * weight;
+      bucket.weight += weight;
+      buckets.set(key, bucket);
     }
-    if (count) _setTrackPalette(Math.round(red / count), Math.round(green / count), Math.round(blue / count));
+
+    const candidates = [...buckets.values()]
+      .sort((a, b) => b.weight - a.weight)
+      .map((bucket) => bucket.sum.map((channel) => Math.round(channel / bucket.weight)));
+    if (!candidates.length) return;
+
+    const colors = [candidates[0]];
+    for (const candidate of candidates.slice(1)) {
+      if (colors.every((color) => _colorDistance(color, candidate) > 78)) colors.push(candidate);
+      if (colors.length === 3) break;
+    }
+    while (colors.length < 3) {
+      const base = colors[0];
+      const offset = colors.length === 1 ? [36, -24, 58] : [-28, 48, 20];
+      colors.push(base.map((channel, index) => Math.max(24, Math.min(238, channel + offset[index]))));
+    }
+
+    _setTrackPalette(...colors[0]);
+    window.dispatchEvent(
+      new CustomEvent("music-lab:artworkpalette", {
+        detail: { colors, imageSrc: image.currentSrc || image.src },
+      })
+    );
   } catch {
     // El fallback determinista ya mantiene la identidad si el canvas no puede leer la imagen.
   }
