@@ -33,6 +33,7 @@ initKaraoke(audioPlayer, karaokeStage, karaokeText);
   document.getElementById("studioSongSelect"),
   document.getElementById("studioLanguage"),
   document.getElementById("studioModel"),
+  document.getElementById("videoFontFamily"),
 ].forEach(enhanceSelect);
 
 // Cargar biblioteca de canciones y renderizar la playlist.

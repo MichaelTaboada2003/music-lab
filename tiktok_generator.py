@@ -54,20 +54,74 @@ class _MoviepyProgressLogger(ProgressBarLogger if ProgressBarLogger else object)
 VIDEO_SIZE = (1080, 1920)
 MARGIN_X = 70
 
-# Paleta estilo terminal / Rich (la que usa lyrics.py en consola).
-COLOR_WINDOW = (13, 17, 23)       # fondo de la "ventana" de terminal
-COLOR_TITLEBAR = (32, 37, 43)     # barra superior de la ventana
-COLOR_TITLEBAR_TEXT = (140, 150, 160)
+# Temas de la terminal. Cada render recibe su propia paleta: no se mutan
+# variables globales, porque dos exportaciones pueden ejecutarse en paralelo.
+VIDEO_THEMES = {
+    "terminal": {
+        "label": "Terminal clásica",
+        "window": (13, 17, 23),
+        "window_end": (13, 17, 23),
+        "titlebar": (32, 37, 43),
+        "titlebar_text": (140, 150, 160),
+        "titlebar_line": (103, 126, 157),
+        "title": (240, 200, 40),
+        "artist": (110, 210, 130),
+        "lyric": (60, 220, 220),
+        "lyric_current": (228, 255, 255),
+        "lyric_future": (76, 91, 111),
+        "cursor": (180, 240, 240),
+        "prompt": (100, 200, 130),
+    },
+    "midnight": {
+        "label": "Medianoche eléctrica",
+        "window": (6, 12, 30),
+        "window_end": (17, 43, 82),
+        "titlebar": (17, 31, 61),
+        "titlebar_text": (176, 201, 242),
+        "titlebar_line": (85, 126, 196),
+        "title": (192, 215, 255),
+        "artist": (111, 220, 255),
+        "lyric": (99, 240, 255),
+        "lyric_current": (239, 253, 255),
+        "lyric_future": (99, 130, 171),
+        "cursor": (154, 246, 255),
+        "prompt": (137, 189, 255),
+    },
+    "sunset": {
+        "label": "Atardecer",
+        "window": (43, 12, 34),
+        "window_end": (105, 35, 53),
+        "titlebar": (83, 31, 55),
+        "titlebar_text": (255, 204, 205),
+        "titlebar_line": (223, 104, 131),
+        "title": (255, 215, 139),
+        "artist": (255, 155, 179),
+        "lyric": (255, 173, 116),
+        "lyric_current": (255, 245, 221),
+        "lyric_future": (181, 112, 127),
+        "cursor": (255, 213, 144),
+        "prompt": (255, 180, 110),
+    },
+    "cloud": {
+        "label": "Nube clara",
+        "window": (245, 243, 237),
+        "window_end": (220, 236, 249),
+        "titlebar": (255, 255, 255),
+        "titlebar_text": (72, 89, 110),
+        "titlebar_line": (177, 196, 216),
+        "title": (48, 67, 98),
+        "artist": (51, 127, 116),
+        "lyric": (17, 131, 151),
+        "lyric_current": (8, 64, 82),
+        "lyric_future": (121, 145, 164),
+        "cursor": (22, 113, 133),
+        "prompt": (54, 140, 103),
+    },
+}
 COLOR_DOT_RED = (255, 95, 86)
 COLOR_DOT_YELLOW = (255, 189, 46)
 COLOR_DOT_GREEN = (39, 201, 63)
-COLOR_TITLE = (240, 200, 40)      # título de la canción (amarillo, como Rich)
-COLOR_ARTIST = (110, 210, 130)    # artista (verde)
-COLOR_LYRIC = (60, 220, 220)      # letra revelada (cian, "bold cyan" de Rich)
-COLOR_LYRIC_CURRENT = (228, 255, 255)
-COLOR_LYRIC_FUTURE = (76, 91, 111)
-COLOR_CURSOR = (180, 240, 240)
-COLOR_PROMPT = (100, 200, 130)
+TERMINAL_TITLE = "NovaLyrics"
 
 # La terminal ocupa el lienzo 9:16 completo: no hay un marco dentro de otro
 # ni franjas laterales que TikTok pueda percibir como contenido vacío.
@@ -75,6 +129,35 @@ WINDOW_BOUNDS = (0, 0, *VIDEO_SIZE)
 
 _FONT_MONO_BOLD = ["Menlo-Bold", "DejaVuSansMono-Bold", "Courier New Bold", "CourierNewPS-BoldMT"]
 _FONT_MONO = ["Menlo-Regular", "Menlo", "DejaVuSansMono", "Courier New", "CourierNewPSMT"]
+
+# Familias disponibles sin depender de descargar fuentes. Las rutas de macOS
+# dan resultado consistente localmente; las alternativas DejaVu mantienen la
+# exportación portable en otros sistemas.
+FONT_FAMILIES = {
+    "mono": {
+        "label": "Monoespaciada",
+        "normal": _FONT_MONO,
+        "bold": _FONT_MONO_BOLD,
+    },
+    "modern": {
+        "label": "Moderna",
+        "normal": ["/System/Library/Fonts/Avenir.ttc", "Avenir.ttc", "DejaVuSans"],
+        "bold": ["/System/Library/Fonts/Avenir Next.ttc", "Avenir Next.ttc", "DejaVuSans-Bold"],
+    },
+    "editorial": {
+        "label": "Editorial",
+        "normal": ["/System/Library/Fonts/Supplemental/Georgia.ttf", "Georgia.ttf", "DejaVuSerif"],
+        "bold": ["/System/Library/Fonts/Supplemental/Georgia Bold.ttf", "Georgia Bold.ttf", "DejaVuSerif-Bold"],
+    },
+}
+
+# La escala afecta título, artista y letra. Ajustar todas en conjunto impide
+# que los metadatos se vean desproporcionados respecto a la estrofa activa.
+FONT_SIZES = {
+    "compact": {"label": "Compacta", "scale": 0.84},
+    "balanced": {"label": "Equilibrada", "scale": 1.0},
+    "large": {"label": "Grande", "scale": 1.20},
+}
 
 _FONT_CACHE = {}
 
@@ -112,6 +195,42 @@ def _truncate_text(draw, text, font, max_width):
     return (shortened.rstrip() + suffix) if shortened else suffix
 
 
+def _theme_for(name):
+    """Devuelve la paleta solicitada o un error claro para la API y CLI."""
+    try:
+        return VIDEO_THEMES[name]
+    except KeyError as exc:
+        choices = ", ".join(VIDEO_THEMES)
+        raise ValueError(f"El tema debe ser uno de: {choices}.") from exc
+
+
+def _font_family_for(name):
+    try:
+        return FONT_FAMILIES[name]
+    except KeyError as exc:
+        choices = ", ".join(FONT_FAMILIES)
+        raise ValueError(f"La fuente debe ser una de: {choices}.") from exc
+
+
+def _font_size_for(name):
+    try:
+        return FONT_SIZES[name]
+    except KeyError as exc:
+        choices = ", ".join(FONT_SIZES)
+        raise ValueError(f"El tamaño debe ser uno de: {choices}.") from exc
+
+
+def _vertical_gradient(video_size, top_color, bottom_color):
+    """Crea el fondo vertical de un tema una sola vez por exportación."""
+    width, height = video_size
+    top = np.array(top_color, dtype=np.float32)
+    bottom = np.array(bottom_color, dtype=np.float32)
+    blend = np.linspace(0, 1, height, dtype=np.float32)[:, None]
+    row = (top + (bottom - top) * blend).astype(np.uint8)
+    pixels = np.broadcast_to(row[:, None, :], (height, width, 3)).copy()
+    return Image.fromarray(pixels, "RGB")
+
+
 def _fit_lyric_font(draw, stanza, max_width):
     pass # Ya no se usa, el texto ahora hace wrap automático
 
@@ -131,34 +250,35 @@ def _active_stanza(stanzas, current_time):
     return active
 
 
-def _draw_window_chrome(draw, fonts, subtitle="lyrics live", bounds=WINDOW_BOUNDS):
+def _draw_window_chrome(draw, fonts, theme, bounds=WINDOW_BOUNDS):
     left, top, right, _ = bounds
     width = right - left
     font_bar = fonts["bar"]
     bar_h = 74
-    draw.rectangle([left, top, right, top + bar_h], fill=COLOR_TITLEBAR)
-    draw.line([left, top + bar_h, right, top + bar_h], fill=(103, 126, 157), width=2)
+    draw.rectangle([left, top, right, top + bar_h], fill=theme["titlebar"])
+    draw.line([left, top + bar_h, right, top + bar_h], fill=theme["titlebar_line"], width=2)
     # Tres puntos estilo macOS
     cy = top + bar_h // 2
     for idx, color in enumerate((COLOR_DOT_RED, COLOR_DOT_YELLOW, COLOR_DOT_GREEN)):
         cx = left + 40 + idx * 40
         r = 12
         draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
-    label = f"music-lab — {subtitle}"
+    # El nombre de la terminal es parte de la identidad visual del video;
+    # no debe cambiar según la canción ni el estilo de letra seleccionado.
+    label = TERMINAL_TITLE
     w = _text_width(draw, label, font_bar)
-    draw.text((left + (width - w) / 2, top + (bar_h - font_bar.size) / 2 - 2), label, font=font_bar, fill=COLOR_TITLEBAR_TEXT)
+    draw.text((left + (width - w) / 2, top + (bar_h - font_bar.size) / 2 - 2), label, font=font_bar, fill=theme["titlebar_text"])
     return top + bar_h
 
 
 def build_karaoke_scene(fonts, title=None, artist=None, video_size=VIDEO_SIZE,
-                        lyric_style="karaoke"):
+                        lyric_style="karaoke", theme_name="terminal"):
     """Construye una terminal full-bleed, idéntica al lienzo final vertical."""
-    base = Image.new("RGB", video_size, color=COLOR_WINDOW)
+    theme = _theme_for(theme_name)
+    base = _vertical_gradient(video_size, theme["window"], theme["window_end"])
     draw = ImageDraw.Draw(base)
     left, top, right, _ = WINDOW_BOUNDS
-    subtitle = "typing lyrics" if lyric_style == "typing" else "lyrics live"
-    chrome_bottom = _draw_window_chrome(draw, fonts, subtitle=subtitle, bounds=WINDOW_BOUNDS)
-    draw.rectangle([left, chrome_bottom, right, VIDEO_SIZE[1]], fill=COLOR_WINDOW)
+    _draw_window_chrome(draw, fonts, theme=theme, bounds=WINDOW_BOUNDS)
 
     y = top + 150
     if title:
@@ -167,27 +287,28 @@ def build_karaoke_scene(fonts, title=None, artist=None, video_size=VIDEO_SIZE,
         title_text = _truncate_text(draw, title, font_title, (right - left) * 0.78)
         total_w = _text_width(draw, prompt, font_title) + _text_width(draw, title_text, font_title)
         x = left + (right - left - total_w) / 2
-        draw.text((x, y), prompt, font=font_title, fill=COLOR_PROMPT)
-        draw.text((x + _text_width(draw, prompt, font_title), y), title_text, font=font_title, fill=COLOR_TITLE)
+        draw.text((x, y), prompt, font=font_title, fill=theme["prompt"])
+        draw.text((x + _text_width(draw, prompt, font_title), y), title_text, font=font_title, fill=theme["title"])
         y += font_title.size + 18
     if artist:
         font_artist = fonts["artist"]
         text = _truncate_text(draw, f"por {artist}", font_artist, (right - left) * 0.72)
         w = _text_width(draw, text, font_artist)
-        draw.text((left + (right - left - w) / 2, y), text, font=font_artist, fill=COLOR_ARTIST)
+        draw.text((left + (right - left - w) / 2, y), text, font=font_artist, fill=theme["artist"])
 
     return base
 
 
 def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
                        video_size=VIDEO_SIZE, scene_image=None,
-                       lyric_style="karaoke"):
+                       lyric_style="karaoke", theme_name="terminal"):
     width, height = video_size
     img = scene_image.copy() if scene_image is not None else build_karaoke_scene(
         fonts, title=title, artist=artist, video_size=video_size,
-        lyric_style=lyric_style,
+        lyric_style=lyric_style, theme_name=theme_name,
     )
     draw = ImageDraw.Draw(img)
+    theme = _theme_for(theme_name)
 
     stanza = _active_stanza(stanzas, current_time)
     if not stanza:
@@ -229,13 +350,13 @@ def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
             wtext = word["text"]
             w_width = _text_width(draw, wtext, font_lyric)
             if current_time >= word["end"]:
-                draw.text((x, y_cursor), wtext, font=font_lyric, fill=COLOR_LYRIC)
+                draw.text((x, y_cursor), wtext, font=font_lyric, fill=theme["lyric"])
                 cursor_pos = (x + w_width + 4, y_cursor)
             elif current_time >= word["start"]:
-                draw.text((x, y_cursor), wtext, font=font_lyric, fill=COLOR_LYRIC_CURRENT, stroke_width=1, stroke_fill=COLOR_CURSOR)
+                draw.text((x, y_cursor), wtext, font=font_lyric, fill=theme["lyric_current"], stroke_width=1, stroke_fill=theme["cursor"])
                 cursor_pos = (x + w_width + 4, y_cursor)
             elif lyric_style == "karaoke":
-                draw.text((x, y_cursor), wtext, font=font_lyric, fill=COLOR_LYRIC_FUTURE)
+                draw.text((x, y_cursor), wtext, font=font_lyric, fill=theme["lyric_future"])
             x += w_width + space_w
         y_cursor += line_height
 
@@ -244,17 +365,23 @@ def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
         cx, cy = cursor_pos
         block_w = int(lyric_size * 0.55)
         block_h = int(lyric_size * 1.05)
-        draw.rectangle([cx, cy + 6, cx + block_w, cy + 6 + block_h], fill=COLOR_CURSOR)
+        draw.rectangle([cx, cy + 6, cx + block_w, cy + 6 + block_h], fill=theme["cursor"])
 
     return np.array(img)
 
 
-def _build_fonts():
+def _build_fonts(font_family="mono", font_size="balanced"):
+    family = _font_family_for(font_family)
+    scale = _font_size_for(font_size)["scale"]
+
+    def scaled(base_size):
+        return max(12, round(base_size * scale))
+
     return {
-        "bar": _load_font(_FONT_MONO, 26),
-        "title": _load_font(_FONT_MONO_BOLD, 52),
-        "artist": _load_font(_FONT_MONO, 36),
-        "lyric": _load_font(_FONT_MONO_BOLD, 44),
+        "bar": _load_font(family["normal"], scaled(26)),
+        "title": _load_font(family["bold"], scaled(52)),
+        "artist": _load_font(family["normal"], scaled(36)),
+        "lyric": _load_font(family["bold"], scaled(44)),
     }
 
 
@@ -263,9 +390,14 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
                          end_time=None, title=None, artist=None,
                          vad="auditok", separate_vocals=True,
                          lyric_style="karaoke",
+                         theme="terminal",
+                         font_family="mono", font_size="balanced",
                          progress_cb=None):
     if lyric_style not in {"karaoke", "typing"}:
         raise ValueError("El formato de letra debe ser 'karaoke' o 'typing'.")
+    _theme_for(theme)
+    _font_family_for(font_family)
+    _font_size_for(font_size)
     def _pc(phase, pct=None):
         if progress_cb:
             try:
@@ -289,10 +421,10 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
             "Revisa la letra y vuelve a sincronizar antes de generar el video."
         )
     stanzas = data["stanzas"]
-    fonts = _build_fonts()
+    fonts = _build_fonts(font_family=font_family, font_size=font_size)
     _pc("Componiendo escena", 94)
     scene_image = build_karaoke_scene(
-        fonts, title=title, artist=artist, lyric_style=lyric_style,
+        fonts, title=title, artist=artist, lyric_style=lyric_style, theme_name=theme,
     )
 
     # 3. Cargar audio y resolver el fragmento a exportar (por defecto, todo).
@@ -314,7 +446,7 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
     def make_frame(t):
         return make_karaoke_frame(
             stanzas, t + frag_start, fonts, title=title, artist=artist,
-            scene_image=scene_image, lyric_style=lyric_style,
+            scene_image=scene_image, lyric_style=lyric_style, theme_name=theme,
         )
 
     video_clip = VideoClip(make_frame, duration=duration)
@@ -346,6 +478,9 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--titulo", default=None, help="Título a mostrar en el video")
     parser.add_argument("-a", "--artista", default=None, help="Artista a mostrar en el video")
     parser.add_argument("--lyric-style", choices=("karaoke", "typing"), default="karaoke")
+    parser.add_argument("--theme", choices=tuple(VIDEO_THEMES), default="terminal", help="Tema visual del video")
+    parser.add_argument("--font-family", choices=tuple(FONT_FAMILIES), default="mono", help="Familia tipográfica de la letra")
+    parser.add_argument("--font-size", choices=tuple(FONT_SIZES), default="balanced", help="Escala de tipografía")
     parser.add_argument("--vad", default="auditok", help="VAD: auditok, silero, o 'none' para desactivar.")
     parser.add_argument("--no-separacion", action="store_true", help="No aislar la voz con Demucs.")
 
@@ -356,4 +491,5 @@ if __name__ == "__main__":
         language=args.language, model=args.model, force_sync=args.force_sync,
         start_time=args.start, end_time=args.end, title=args.titulo, artist=args.artista,
         vad=vad_arg, separate_vocals=not args.no_separacion, lyric_style=args.lyric_style,
+        theme=args.theme, font_family=args.font_family, font_size=args.font_size,
     )

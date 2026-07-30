@@ -9,7 +9,7 @@ Cuenta con una interfaz de usuario hiper-premium basada en "Glassmorphism", un v
 *   **🎧 Reproductor Inmersivo:** Reproductor web interactivo con "Ambient Mode" (fondo reactivo al sonido) y visualizador de forma de onda.
 *   **⬇️ Descarga Automática:** Descarga audio directo desde enlaces de YouTube (y otros).
 *   **🎤 Karaoke Sincronizado por IA:** Utiliza **Whisper** (OpenAI) para escuchar el audio de la canción y alinear matemáticamente cada palabra de la letra escrita, detectando el milisegundo exacto en que se canta.
-*   **🎬 Generador de Videos (TikTok/Reels):** Exporta fragmentos seleccionados a un video vertical (MP4) con **Kinetic Typography** (texto que reacciona e ilumina con la canción) y un analizador de espectro renderizado con NumPy FFT y MoviePy.
+*   **🎬 Generador de Videos (TikTok/Reels):** Exporta fragmentos seleccionados a un video vertical (MP4) con letra sincronizada, cuatro temas visuales y tipografía configurable (tres fuentes y tres escalas).
 
 ## 🛠️ Tecnologías
 
@@ -46,12 +46,21 @@ Finalmente, el audio procesado junto con **la letra escrita** se introduce a un 
 ## ⚙️ Uso / Instalación
 
 1.  **Clona este repositorio** y navega al directorio del proyecto.
-2.  **Instala las dependencias** recomendadas en tu entorno virtual (se requiere `fastapi`, `uvicorn`, `whisper-timestamped`, `moviepy`, `numpy`, `Pillow`, etc.). También se necesita instalar **ffmpeg**.
+2.  **Instala las dependencias con `uv`** (se requiere tener `uv` y **ffmpeg** instalados):
+    ```bash
+    uv sync
+    ```
+    Esto crea `.venv/` y deja las versiones bloqueadas en `uv.lock`.
 3.  **Inicia el servidor backend:**
     ```bash
-    uvicorn app:app --reload
+    uv run uvicorn app:app --reload
     ```
 4.  **Abre tu navegador** en `http://127.0.0.1:8000` para disfrutar de la experiencia Music Lab.
+
+    Alternativamente, puedes usar el lanzador que abre el navegador automáticamente:
+    ```bash
+    uv run python music_lab.py
+    ```
 
 ## 📁 Estructura del Proyecto
 

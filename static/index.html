@@ -297,6 +297,78 @@
           <label>Nombre del archivo de salida</label>
           <input type="text" id="videoOutputName" placeholder="Se usará el nombre de la canción si lo dejas vacío" />
 
+          <fieldset class="video-theme-picker">
+            <legend>Tema visual</legend>
+            <p class="picker-hint">Cambia la paleta del video sin afectar la sincronización ni el formato de la letra.</p>
+            <div class="video-theme-options">
+              <label class="video-theme-option">
+                <input type="radio" name="videoTheme" value="terminal" checked />
+                <span class="video-theme-swatch theme-swatch-terminal" aria-hidden="true"></span>
+                <span class="video-theme-copy">
+                  <span class="video-theme-name">Terminal clásica</span>
+                  <span class="video-theme-description">El look original de NovaLyrics.</span>
+                </span>
+              </label>
+              <label class="video-theme-option">
+                <input type="radio" name="videoTheme" value="midnight" />
+                <span class="video-theme-swatch theme-swatch-midnight" aria-hidden="true"></span>
+                <span class="video-theme-copy">
+                  <span class="video-theme-name">Medianoche eléctrica</span>
+                  <span class="video-theme-description">Azules profundos y brillo frío.</span>
+                </span>
+              </label>
+              <label class="video-theme-option">
+                <input type="radio" name="videoTheme" value="sunset" />
+                <span class="video-theme-swatch theme-swatch-sunset" aria-hidden="true"></span>
+                <span class="video-theme-copy">
+                  <span class="video-theme-name">Atardecer</span>
+                  <span class="video-theme-description">Tonos cálidos para un clip expresivo.</span>
+                </span>
+              </label>
+              <label class="video-theme-option">
+                <input type="radio" name="videoTheme" value="cloud" />
+                <span class="video-theme-swatch theme-swatch-cloud" aria-hidden="true"></span>
+                <span class="video-theme-copy">
+                  <span class="video-theme-name">Nube clara</span>
+                  <span class="video-theme-description">Un acabado limpio y luminoso.</span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="video-typography-picker">
+            <legend>Tipografía</legend>
+            <p class="picker-hint">La fuente y escala se aplican al título, artista y letra del video.</p>
+            <div class="typography-family-field">
+              <label for="videoFontFamily">Fuente</label>
+              <select id="videoFontFamily">
+                <option value="mono">Monoespaciada · clásica de terminal</option>
+                <option value="modern">Moderna · limpia y contemporánea</option>
+                <option value="editorial">Editorial · con serifas</option>
+              </select>
+            </div>
+            <div class="typography-size-field">
+              <span class="typography-label">Tamaño de letra</span>
+              <div class="typography-size-options">
+                <label class="typography-size-option">
+                  <input type="radio" name="videoFontSize" value="compact" />
+                  <span class="type-sample type-sample-compact">Aa</span>
+                  <span>Compacta</span>
+                </label>
+                <label class="typography-size-option">
+                  <input type="radio" name="videoFontSize" value="balanced" checked />
+                  <span class="type-sample type-sample-balanced">Aa</span>
+                  <span>Equilibrada</span>
+                </label>
+                <label class="typography-size-option">
+                  <input type="radio" name="videoFontSize" value="large" />
+                  <span class="type-sample type-sample-large">Aa</span>
+                  <span>Grande</span>
+                </label>
+              </div>
+            </div>
+          </fieldset>
+
           <fieldset class="lyric-style-picker">
             <legend>Formato de letra</legend>
             <div class="lyric-style-options">
@@ -375,7 +447,7 @@
                 <span class="term-dot term-dot-red"></span>
                 <span class="term-dot term-dot-yellow"></span>
                 <span class="term-dot term-dot-green"></span>
-                <span class="term-label" id="fragPreviewLabel">music-lab — vista previa</span>
+                <span class="term-label" id="fragPreviewLabel">NovaLyrics</span>
                 <button class="term-close" id="fragPreviewClose" title="Cerrar">×</button>
               </div>
               <div class="term-body">

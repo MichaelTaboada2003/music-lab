@@ -28,6 +28,9 @@ const fragPreviewLabel = document.getElementById("fragPreviewLabel");
 const fragPreviewTitle = document.getElementById("fragPreviewTitle");
 const fragPreviewArtist = document.getElementById("fragPreviewArtist");
 const lyricStyleInputs = document.querySelectorAll('input[name="videoLyricStyle"]');
+const videoThemeInputs = document.querySelectorAll('input[name="videoTheme"]');
+const videoFontFamily = document.getElementById("videoFontFamily");
+const videoFontSizeInputs = document.querySelectorAll('input[name="videoFontSize"]');
 const studioTrackTitle = document.getElementById("studioTrackTitle");
 const studioTrackArtist = document.getElementById("studioTrackArtist");
 const studioArtworkImage = document.getElementById("studioArtworkImage");
@@ -44,15 +47,27 @@ const LYRIC_STYLE_LABELS = {
   karaoke: "Karaoke terminal",
   typing: "Escritura progresiva",
 };
+const TERMINAL_TITLE = "NovaLyrics";
 
 function selectedLyricStyle() {
   return document.querySelector('input[name="videoLyricStyle"]:checked')?.value || "karaoke";
+}
+
+function selectedVideoTheme() {
+  return document.querySelector('input[name="videoTheme"]:checked')?.value || "terminal";
+}
+
+function selectedFontSize() {
+  return document.querySelector('input[name="videoFontSize"]:checked')?.value || "balanced";
 }
 
 function applyPreviewLyricStyle() {
   if (!fragPreviewStage) return;
   const style = selectedLyricStyle();
   fragPreviewStage.dataset.lyricStyle = style;
+  fragPreviewStage.dataset.videoTheme = selectedVideoTheme();
+  fragPreviewStage.dataset.videoFont = videoFontFamily?.value || "mono";
+  fragPreviewStage.dataset.videoFontSize = selectedFontSize();
   return LYRIC_STYLE_LABELS[style];
 }
 
@@ -299,8 +314,8 @@ fragPreviewBtn.addEventListener("click", async () => {
   const artista = document.getElementById("videoArtista").value.trim() || song.artist || "";
   fragPreviewTitle.textContent = titulo;
   fragPreviewArtist.textContent = artista ? `por ${artista}` : "";
-  fragPreviewLabel.textContent =
-    `music-lab — ${applyPreviewLyricStyle()} (${formatSeconds(start)} — ${end !== null ? formatSeconds(end) : "fin"})`;
+  applyPreviewLyricStyle();
+  fragPreviewLabel.textContent = TERMINAL_TITLE;
 
   _renderTerminalLyrics(stanzas);
   fragPreviewStage.hidden = false;
@@ -341,8 +356,25 @@ fragPreviewClose.addEventListener("click", () => {
 lyricStyleInputs.forEach((input) => {
   input.addEventListener("change", () => {
     if (fragPreviewStage.hidden) return;
-    const styleLabel = applyPreviewLyricStyle();
-    fragPreviewLabel.textContent = `music-lab — ${styleLabel}`;
+    applyPreviewLyricStyle();
+    fragPreviewLabel.textContent = TERMINAL_TITLE;
+  });
+});
+
+videoThemeInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    if (fragPreviewStage.hidden) return;
+    applyPreviewLyricStyle();
+  });
+});
+
+videoFontFamily?.addEventListener("change", () => {
+  if (!fragPreviewStage.hidden) applyPreviewLyricStyle();
+});
+
+videoFontSizeInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    if (!fragPreviewStage.hidden) applyPreviewLyricStyle();
   });
 });
 
@@ -465,6 +497,9 @@ videoGenerateBtn.addEventListener("click", async () => {
   const end_time =
     fragEndInput.value !== "" ? parseFloat(fragEndInput.value) : null;
   const lyric_style = selectedLyricStyle();
+  const theme = selectedVideoTheme();
+  const font_family = videoFontFamily?.value || "mono";
+  const font_size = selectedFontSize();
 
   videoGenerateBtn.disabled = true;
   setStatus(videoStatus, "");
@@ -482,6 +517,9 @@ videoGenerateBtn.addEventListener("click", async () => {
         start_time,
         end_time,
         lyric_style,
+        theme,
+        font_family,
+        font_size,
         separate_vocals: opts.separate_vocals,
         vad: opts.vad,
       }
