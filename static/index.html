@@ -232,7 +232,8 @@
             <div class="field-narrow">
               <label>Idioma</label>
               <select id="studioLanguage">
-                <option value="es" selected>Español</option>
+                <option value="auto" selected>Automático</option>
+                <option value="es">Español</option>
                 <option value="en">English</option>
               </select>
             </div>
@@ -241,21 +242,21 @@
               <select id="studioModel">
                 <option value="tiny">tiny (rápido)</option>
                 <option value="base">base</option>
-                <option value="small" selected>small (recomendado)</option>
-                <option value="medium">medium (lento, preciso)</option>
+                <option value="small">small (rápido)</option>
+                <option value="medium" selected>medium (recomendado)</option>
               </select>
             </div>
           </div>
 
           <div class="checkbox-row">
             <label><input type="checkbox" id="studioSeparate" checked /> Aislar voz (Demucs)</label>
-            <label><input type="checkbox" id="studioVad" checked /> Detección de voz (VAD)</label>
+            <label><input type="checkbox" id="studioVad" checked /> Omitir silencios (VAD)</label>
             <label><input type="checkbox" id="studioForce" /> Forzar re-sincronización</label>
           </div>
 
           <p class="hint">
-            "Aislar voz" + "VAD" dan la mejor sincronía. La primera vez, Demucs puede
-            tardar un par de minutos; luego queda cacheada.
+            "Aislar voz" + VAD suele evitar texto inventado durante instrumentales.
+            Si una voz muy suave desaparece por completo, prueba una segunda vez sin VAD.
           </p>
 
           <div class="sync-actions">

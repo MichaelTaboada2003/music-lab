@@ -143,7 +143,7 @@ function updateStudioTrackContext() {
 
 export function studioSyncOptions() {
   return {
-    language: document.getElementById("studioLanguage").value.trim() || "es",
+    language: document.getElementById("studioLanguage").value.trim() || "auto",
     model: document.getElementById("studioModel").value,
     force: document.getElementById("studioForce").checked,
     separate_vocals: document.getElementById("studioSeparate").checked,
@@ -248,11 +248,15 @@ studioSyncBtn.addEventListener("click", async () => {
           baja: "Sincronía insuficiente.",
         };
         const qualityStatus = qualityLabels[result.quality?.label] || qualityLabels.baja;
+        const unresolved = Number(result.quality?.unresolved_words || 0);
+        const diagnostic = unresolved
+          ? ` ${unresolved} palabras quedaron sin ancla directa.`
+          : "";
         setStatus(
           studioStatus,
           playable
             ? `Sincronización automática lista. ${qualityStatus}`
-            : `La sincronización automática terminó. ${qualityStatus} Revisa la letra antes de usar karaoke o video.`,
+            : `La sincronización automática terminó. ${qualityStatus}${diagnostic} Prueba modelo medium, idioma Automático y alterna VAD; la letra no necesariamente está mal.`,
           playable ? "ok" : "error"
         );
         applyStudioSync(stem, result);
@@ -533,7 +537,8 @@ function _updatePlayerPreview(t, stanzas) {
     const viewport = playerPreviewLyrics.closest(".player-preview-lyrics-viewport");
     if (viewport) {
       const activeCenter = activeLine.offsetTop + activeLine.offsetHeight / 2;
-      const targetCenter = viewport.clientHeight * 0.14;
+      const scrollAnchor = viewport.clientHeight * 0.58;
+      const targetCenter = Math.min(activeCenter, scrollAnchor);
       playerPreviewLyrics.style.transform = `translateY(${targetCenter - activeCenter}px)`;
     }
   }

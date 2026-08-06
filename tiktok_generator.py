@@ -501,6 +501,56 @@ def _draw_player_controls(draw, center_x, center_y):
     draw.line((x - 14, center_y - 18, x + 5, center_y, x - 14, center_y + 18), fill=dim, width=5, joint="curve")
 
 
+def _draw_player_volume_icon(draw, center_x, center_y, volume_ratio):
+    """Dibuja un icono de volumen limpio y consistente con el reproductor web."""
+    color = (174, 177, 187)
+    ratio = max(0.0, min(1.0, float(volume_ratio)))
+
+    # Parlante de contorno: se lee mejor a tamaño pequeño que el polígono
+    # relleno anterior y replica el lenguaje visual de los controles SVG.
+    speaker = [
+        (center_x - 25, center_y - 7),
+        (center_x - 17, center_y - 7),
+        (center_x - 7, center_y - 17),
+        (center_x - 7, center_y + 17),
+        (center_x - 17, center_y + 7),
+        (center_x - 25, center_y + 7),
+        (center_x - 25, center_y - 7),
+    ]
+    draw.line(speaker, fill=color, width=4, joint="curve")
+
+    if ratio <= 0.01:
+        # Estado silenciado inequívoco.
+        draw.line(
+            (center_x + 3, center_y - 8, center_x + 19, center_y + 8),
+            fill=color,
+            width=4,
+        )
+        draw.line(
+            (center_x + 19, center_y - 8, center_x + 3, center_y + 8),
+            fill=color,
+            width=4,
+        )
+        return
+
+    wave_origin = center_x - 7
+    draw.arc(
+        (wave_origin - 10, center_y - 13, wave_origin + 16, center_y + 13),
+        start=-52,
+        end=52,
+        fill=color,
+        width=4,
+    )
+    if ratio >= 0.5:
+        draw.arc(
+            (wave_origin - 17, center_y - 22, wave_origin + 27, center_y + 22),
+            start=-52,
+            end=52,
+            fill=color,
+            width=4,
+        )
+
+
 def build_player_scene(fonts, title=None, artist=None, video_size=PLAYER_VIDEO_SIZE,
                        theme_name="terminal", cover_path=None, audio_volume=1.0):
     del fonts, theme_name
@@ -570,14 +620,11 @@ def build_player_scene(fonts, title=None, artist=None, video_size=PLAYER_VIDEO_S
     draw.rounded_rectangle((prog_left, prog_y, prog_right, prog_y + 8), radius=4, fill=(62, 60, 63))
     _draw_player_controls(draw, p_left + card_w // 2, p_top + 906)
 
-    # El riel refleja el volumen real configurado para esta exportación.
+    # El riel y el icono reflejan el volumen real configurado para esta exportación.
     vol_y = p_top + 996
-    draw.polygon(
-        ((p_left + 40, vol_y), (p_left + 52, vol_y), (p_left + 68, vol_y - 14), (p_left + 68, vol_y + 14), (p_left + 52, vol_y + 3), (p_left + 40, vol_y + 3)),
-        fill=(165, 167, 178),
-    )
     vol_left, vol_right = p_left + 92, p_right - 38
     volume_ratio = max(0.0, min(1.0, float(audio_volume)))
+    _draw_player_volume_icon(draw, p_left + 55, vol_y, volume_ratio)
     draw.rounded_rectangle((vol_left, vol_y - 3, vol_right, vol_y + 5), radius=4, fill=(80, 78, 84))
     knob_x = vol_left + int((vol_right - vol_left) * volume_ratio)
     if knob_x > vol_left:
@@ -776,6 +823,26 @@ def _draw_player_active_line(img, line, current_time, center_x, y, max_width):
         x += word_w + space_w
 
 
+def _player_scroll_rows(line_count, active_index, top=125, anchor=620,
+                        bottom=990, line_gap=118):
+    """Calcula un scroll progresivo que empieza arriba y continúa hacia abajo.
+
+    Las primeras líneas conservan su posición natural, por lo que el relleno
+    avanza visualmente por el panel en vez de reemplazar siempre la línea de
+    arriba. Al alcanzar el 60% del panel, el contenido sigue desplazándose y
+    mantiene contexto de líneas pasadas y futuras alrededor de la activa.
+    """
+    active_y = min(top + active_index * line_gap, anchor)
+    visible_past = max(0, math.floor((active_y - top) / line_gap))
+    first_index = max(0, active_index - visible_past)
+    visible_future = max(0, math.ceil((bottom - active_y) / line_gap))
+    last_index = min(line_count, active_index + visible_future + 1)
+    return [
+        (index, active_y + (index - active_index) * line_gap)
+        for index in range(first_index, last_index)
+    ]
+
+
 def _draw_player_frame_content(img, stanzas, current_time, audio_duration=None):
     """Contenido dinámico del layout horizontal: progreso y letra en scroll."""
     draw = ImageDraw.Draw(img)
@@ -803,8 +870,8 @@ def _draw_player_frame_content(img, stanzas, current_time, audio_duration=None):
     duration_w = _text_width(draw, duration_label, fonts["time"])
     draw.text((p_right - 38 - duration_w, label_y), duration_label, font=fonts["time"], fill=(139, 141, 151))
 
-    # Lectura descendente: la línea activa queda cerca del borde superior y
-    # las siguientes se distribuyen hacia abajo, sin arrancar en el centro.
+    # Lectura descendente progresiva: comienza arriba, avanza por el panel y
+    # después hace scroll conservando líneas anteriores como contexto.
     lines = _flatten_lyric_lines(stanzas)
     if not lines:
         return
@@ -816,18 +883,15 @@ def _draw_player_frame_content(img, stanzas, current_time, audio_duration=None):
             break
 
     center_x = (760 + 1880) / 2
-    active_y = 125
-    line_gap = 118
     max_width = 1000
-    for index in range(active_index, min(len(lines), active_index + 8)):
+    for index, y in _player_scroll_rows(len(lines), active_index):
         line = lines[index]
         delta = index - active_index
-        y = active_y + delta * line_gap
         if delta == 0:
             _draw_player_active_line(img, line, current_time, center_x, y, max_width)
         else:
-            distance = delta
-            alpha = max(38, 112 - distance * 24)
+            distance = abs(delta)
+            alpha = max(30, (68 if delta < 0 else 112) - distance * 18)
             color = (164, 166, 176, alpha)
             _draw_player_dim_line(
                 img,
@@ -934,8 +998,8 @@ def _build_fonts(font_family="mono", font_size="balanced"):
     }
 
 
-def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
-                         model="small", force_sync=False, start_time=None,
+def create_tiktok_video(audio_source, lyrics_path, output_path, language="auto",
+                         model="medium", force_sync=False, start_time=None,
                          end_time=None, title=None, artist=None,
                          vad="auditok", separate_vocals=True,
                          layout_style="player",
@@ -979,9 +1043,12 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
         progress_cb=progress_cb,
     )
     if not data.get("quality", {}).get("playable"):
+        quality = data.get("quality", {})
         raise ValueError(
             "La sincronización no tiene calidad suficiente para exportar. "
-            "Revisa la letra y vuelve a sincronizar antes de generar el video."
+            f"Quedaron {quality.get('unresolved_words', 0)} palabras sin ancla. "
+            "Vuelve a sincronizar con medium, idioma Automático y prueba alternar VAD; "
+            "la letra no necesariamente está mal."
         )
     stanzas = data["stanzas"]
 

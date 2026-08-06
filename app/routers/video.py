@@ -20,8 +20,8 @@ router = APIRouter(tags=["video"])
 
 
 class VideoRequest(BaseModel):
-    language: str = "es"
-    model: str = "small"
+    language: str = "auto"
+    model: str = "medium"
     force_sync: bool = False
     nombre_salida: Optional[str] = None
     start_time: Optional[float] = None

@@ -131,6 +131,18 @@ class TikTokThemeTests(unittest.TestCase):
         self.assertEqual(first.dtype, np.uint8)
         self.assertFalse(np.array_equal(first, second))
 
+    def test_player_lyrics_advance_down_before_scroll_anchor(self):
+        first = dict(generator._player_scroll_rows(12, 0))
+        second = dict(generator._player_scroll_rows(12, 1))
+        fifth = dict(generator._player_scroll_rows(12, 4))
+        later = dict(generator._player_scroll_rows(12, 8))
+
+        self.assertEqual(first[0], 125)
+        self.assertGreater(second[1], first[0])
+        self.assertGreater(fifth[4], second[1])
+        self.assertEqual(later[8], 620)
+        self.assertTrue(any(index < 8 for index in later))
+
     def test_player_volume_changes_chrome_and_rejects_invalid_values(self):
         fonts = generator._build_fonts("modern", "balanced")
         quiet = np.array(generator.build_karaoke_scene(
@@ -154,6 +166,21 @@ class TikTokThemeTests(unittest.TestCase):
                 "missing.mp4",
                 audio_volume=1.1,
             )
+
+    def test_player_volume_icon_has_distinct_mute_low_and_high_states(self):
+        fonts = generator._build_fonts("modern", "balanced")
+        states = []
+        for volume in (0.0, 0.25, 0.75):
+            scene = np.array(generator.build_karaoke_scene(
+                fonts,
+                video_size=generator.PLAYER_VIDEO_SIZE,
+                layout_style="player",
+                audio_volume=volume,
+            ))
+            states.append(scene[1000:1050, 60:125])
+
+        self.assertFalse(np.array_equal(states[0], states[1]))
+        self.assertFalse(np.array_equal(states[1], states[2]))
 
 
 if __name__ == "__main__":

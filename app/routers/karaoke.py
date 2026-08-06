@@ -16,7 +16,6 @@ from lyrics_sync import (
     align_lyrics_to_audio,
     quality_from_stanzas,
     sync_cache_is_current,
-    upgrade_sync_cache,
 )
 
 from ..jobs import start_job
@@ -52,8 +51,6 @@ def api_karaoke_cache(stem: str):
     actual = lyrics_path.is_file() and sync_cache_is_current(
         data, str(song), str(lyrics_path)
     )
-    if actual and upgrade_sync_cache(data):
-        _atomic_json_write(cache, data)
     quality = data.get("quality") if actual else None
     return {
         "existe": bool(actual and quality and quality.get("playable")),
@@ -67,8 +64,8 @@ def api_karaoke_cache(stem: str):
 
 
 class SyncRequest(BaseModel):
-    language: str = "es"
-    model: str = "small"
+    language: str = "auto"
+    model: str = "medium"
     force: bool = False
     vad: Optional[str] = "auditok"
     separate_vocals: bool = True

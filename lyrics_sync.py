@@ -36,9 +36,20 @@ except ImportError:
 
 WHISPER_SAMPLE_RATE = 16000
 _WORD_RE = re.compile(r"[^\w'áéíóúñüàèìòùâêîôûäëïöü]+", re.UNICODE)
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 MIN_WORD_DURATION = 0.06
-PROMPT_MAX_CHARS = 480
+
+# Puntuaciones del alineamiento global.  `SequenceMatcher` funciona bien para
+# prosa, pero no para canciones: cuando un coro se repite puede asociar la
+# primera aparición de la letra con la segunda aparición del audio y desplazar
+# todo lo que queda entre ambas.  Un Needleman-Wunsch conserva el orden global
+# y penaliza explícitamente las omisiones de Whisper y los ad-libs.
+ALIGN_EXACT_SCORE = 4.0
+ALIGN_FUZZY_SCORE = 1.75
+ALIGN_MISMATCH_SCORE = -1.5
+ALIGN_LYRIC_GAP_SCORE = -0.7
+ALIGN_TRANSCRIPT_GAP_SCORE = -0.45
+ALIGN_FUZZY_THRESHOLD = 0.82
 
 _MODEL_CACHE = {}
 
@@ -48,8 +59,96 @@ def normalize_word(word: str) -> str:
     word = unicodedata.normalize("NFKD", word.lower().strip())
     word = "".join(char for char in word if not unicodedata.combining(char))
     word = word.replace("’", "'").replace("`", "'")
+    # Letras publicadas por servicios musicales suelen escribir *losin'*,
+    # *runnin'*, etc. Whisper normalmente devuelve *losing*, *running*.
+    # Hacerlo antes de retirar apóstrofes evita convertir la preposición "in".
+    if len(word) > 3 and word.endswith("in'"):
+        word = word[:-3] + "ing"
     word = _WORD_RE.sub("", word)
     return word.replace("'", "")
+
+
+def _token_similarity(left: str, right: str) -> float:
+    """Similitud conservadora para errores fonéticos pequeños de Whisper."""
+    if left == right:
+        return 1.0
+    aliases = {
+        "cuz": "cause",
+        "cos": "cause",
+        "wanna": "wantto",
+    }
+    left = aliases.get(left, left)
+    right = aliases.get(right, right)
+    if left == right:
+        return 1.0
+    if min(len(left), len(right)) < 4:
+        return 0.0
+    return difflib.SequenceMatcher(a=left, b=right, autojunk=False).ratio()
+
+
+def _align_word_sequences(whisper_words: list, lyrics_tokens: list) -> dict:
+    """Alinea transcripción y letra sin confundir coros repetidos.
+
+    Devuelve ``{indice_letra: indice_whisper}`` únicamente para coincidencias
+    exactas o suficientemente parecidas. Los pasos de sustitución necesarios
+    para mantener la ruta global no se publican como anclas de tiempo.
+    """
+    transcript = [word[0] if isinstance(word, (tuple, list)) else word for word in whisper_words]
+    rows = len(transcript) + 1
+    cols = len(lyrics_tokens) + 1
+    scores = [[0.0] * cols for _ in range(rows)]
+    moves = [[0] * cols for _ in range(rows)]  # 1 diagonal, 2 transcript, 3 letra
+
+    for row in range(1, rows):
+        scores[row][0] = row * ALIGN_TRANSCRIPT_GAP_SCORE
+        moves[row][0] = 2
+    for col in range(1, cols):
+        scores[0][col] = col * ALIGN_LYRIC_GAP_SCORE
+        moves[0][col] = 3
+
+    for row in range(1, rows):
+        transcript_token = transcript[row - 1]
+        for col in range(1, cols):
+            lyric_token = lyrics_tokens[col - 1]
+            similarity = _token_similarity(transcript_token, lyric_token)
+            if similarity == 1.0:
+                pair_score = ALIGN_EXACT_SCORE
+            elif similarity >= ALIGN_FUZZY_THRESHOLD:
+                pair_score = ALIGN_FUZZY_SCORE * similarity
+            else:
+                pair_score = ALIGN_MISMATCH_SCORE
+
+            diagonal = scores[row - 1][col - 1] + pair_score
+            skip_transcript = scores[row - 1][col] + ALIGN_TRANSCRIPT_GAP_SCORE
+            skip_lyric = scores[row][col - 1] + ALIGN_LYRIC_GAP_SCORE
+            best = max(diagonal, skip_transcript, skip_lyric)
+            scores[row][col] = best
+            # En empates preferimos huecos antes que declarar una sustitución
+            # dudosa como ancla temporal.
+            if best == diagonal and similarity >= ALIGN_FUZZY_THRESHOLD:
+                moves[row][col] = 1
+            elif best == skip_transcript:
+                moves[row][col] = 2
+            elif best == skip_lyric:
+                moves[row][col] = 3
+            else:
+                moves[row][col] = 1
+
+    aligned = {}
+    row, col = len(transcript), len(lyrics_tokens)
+    while row > 0 or col > 0:
+        move = moves[row][col]
+        if move == 1:
+            similarity = _token_similarity(transcript[row - 1], lyrics_tokens[col - 1])
+            if similarity >= ALIGN_FUZZY_THRESHOLD:
+                aligned[col - 1] = row - 1
+            row -= 1
+            col -= 1
+        elif move == 2:
+            row -= 1
+        else:
+            col -= 1
+    return aligned
 
 
 def parse_lyrics_file(path) -> list:
@@ -92,13 +191,18 @@ def _transcribe(
     audio_path: str,
     language: str,
     model_name: str,
-    vad=None,
+    vad="auditok",
     initial_prompt: str = None,
 ):
     model = _get_model(model_name)
     print(f"Transcribiendo {audio_path} para obtener tiempos reales...")
     audio = whisper.load_audio(audio_path)
     duration = len(audio) / WHISPER_SAMPLE_RATE
+    # La alineación por atención de whisper-timestamped es más lenta que las
+    # marcas nativas, pero en voces musicales tenues conserva muchos más versos
+    # y evita segmentos comprimidos. El modelo sigue condicionado por su texto
+    # anterior para mantener continuidad; el alineador global resuelve luego
+    # las repeticiones de coros.
     kwargs = {"beam_size": 5}
     if vad:
         # VAD (detección de voz): descarta las zonas sin voz antes de
@@ -109,16 +213,39 @@ def _transcribe(
         # La letra guía el vocabulario de Whisper, pero los tiempos siguen
         # viniendo del audio y nunca se inventan desde el texto.
         kwargs["initial_prompt"] = initial_prompt
-    result = whisper.transcribe(model, audio, language=language, **kwargs)
+    transcription_language = None if language in (None, "", "auto") else language
+    result = whisper.transcribe(model, audio, language=transcription_language, **kwargs)
     return result, duration
 
 
 MAX_WORD_DURATION = 1.2   # segundos: nadie canta una sola palabra por más que esto
 MAX_GAP_TO_STRETCH = 4.0  # segundos: huecos mayores a esto se tratan como instrumental,
                           # no se reparten entre las palabras sin match
+ESTIMATED_MISSING_WORD_DURATION = 0.55
 
 
-def _fill_missing_times(times, total_duration):
+def _missing_durations(tokens, start, end):
+    """Duraciones relativas para un tramo que Whisper no reconoció."""
+    if not tokens:
+        return [ESTIMATED_MISSING_WORD_DURATION] * (end - start)
+    weights = [_word_weight(tokens[index]) for index in range(start, end)]
+    average = sum(weights) / len(weights)
+    return [
+        min(MAX_WORD_DURATION, ESTIMATED_MISSING_WORD_DURATION * weight / average)
+        for weight in weights
+    ]
+
+
+def _fit_durations(durations, available):
+    """Escala un grupo para que nunca invada la siguiente ancla fiable."""
+    total = sum(durations)
+    if available is None or total <= available or total <= 0:
+        return durations
+    scale = max(0.0, available) / total
+    return [duration * scale for duration in durations]
+
+
+def _fill_missing_times(times, total_duration, tokens=None):
     """Asigna tiempos a las palabras de la letra que Whisper no pudo
     emparejar (ad-libs, coros repetidos que no transcribió, errores, etc.).
 
@@ -149,91 +276,50 @@ def _fill_missing_times(times, total_duration):
         gap = j - i
         prev_end = times[i - 1][1] if i > 0 else None
         next_start = times[j][0] if j < n else None
+        durations = _missing_durations(tokens, i, j)
 
         if prev_end is None and next_start is None:
             # Ninguna palabra reconocida en toda la canción: repartir desde 0.
-            step = min(total_duration / (gap + 1), MAX_WORD_DURATION)
+            durations = _fit_durations(durations, total_duration)
             cursor = 0.0
-            for k in range(gap):
-                times[i + k] = (cursor, cursor + step)
-                cursor += step
+            for k, duration in enumerate(durations):
+                times[i + k] = (cursor, cursor + duration)
+                cursor += duration
             i = j
             continue
 
         available = (next_start - prev_end) if (prev_end is not None and next_start is not None) else None
 
         if available is not None and available <= MAX_GAP_TO_STRETCH:
-            # Hueco pequeño: interpolación lineal uniforme.
-            step = available / (gap + 1)
+            # Hueco pequeño: interpolación ponderada, dejando una unidad de
+            # respiración antes de la siguiente ancla.
+            padding = sum(durations) / max(len(durations), 1)
+            durations = _fit_durations(durations, max(0.0, available - padding))
             cursor = prev_end
-            for k in range(gap):
-                times[i + k] = (cursor, cursor + step)
-                cursor += step
+            for k, duration in enumerate(durations):
+                times[i + k] = (cursor, cursor + duration)
+                cursor += duration
         elif next_start is not None:
             # Hueco grande (o palabras al inicio): empaquetar HACIA ATRÁS
             # desde la siguiente palabra reconocida.
             lower = prev_end if prev_end is not None else 0.0
+            durations = _fit_durations(durations, next_start - lower)
             cursor = next_start
             for k in reversed(range(gap)):
                 e = cursor
-                s = max(e - MAX_WORD_DURATION, lower)
+                s = max(e - durations[k], lower)
                 times[i + k] = (s, e)
                 cursor = s
         else:
             # Cola final: empaquetar hacia adelante desde la última conocida.
             cursor = prev_end
-            for k in range(gap):
-                e = min(cursor + MAX_WORD_DURATION, total_duration)
+            durations = _fit_durations(durations, total_duration - cursor)
+            for k, duration in enumerate(durations):
+                e = min(cursor + duration, total_duration)
                 times[i + k] = (cursor, e)
                 cursor = e
         i = j
     return times
-
-
-def _fill_line_internal(times, start, end):
-    """Rellena los huecos DENTRO de una línea (tokens [start, end)) usando
-    solo las palabras reconocidas de esa misma línea como anclas. Una línea
-    se canta de forma contigua, así que:
-      - las palabras iniciales sin match se empaquetan hacia atrás desde la
-        primera palabra reconocida de la línea,
-      - las finales se empaquetan hacia adelante desde la última reconocida,
-      - los huecos intermedios se interpolan linealmente.
-    Si la línea no tiene ninguna palabra reconocida, se deja intacta para
-    resolverla luego con el contexto de las líneas vecinas."""
-    matched = [k for k in range(start, end) if times[k] is not None]
-    if not matched:
-        return
-
-    # Huecos intermedios entre dos palabras reconocidas de la línea.
-    for a, b in zip(matched, matched[1:]):
-        if b - a > 1:
-            prev_end = times[a][1]
-            next_start = times[b][0]
-            n_gap = b - a - 1
-            step = (next_start - prev_end) / (n_gap + 1)
-            cursor = prev_end
-            for k in range(a + 1, b):
-                times[k] = (cursor, cursor + step)
-                cursor += step
-
-    # Palabras iniciales sin match: hacia atrás desde la primera reconocida.
-    first = matched[0]
-    if first > start:
-        cursor = times[first][0]
-        for k in range(first - 1, start - 1, -1):
-            e = cursor
-            s = max(e - MAX_WORD_DURATION, 0.0)
-            times[k] = (s, e)
-            cursor = s
-
-    # Palabras finales sin match: hacia adelante desde la última reconocida.
-    last = matched[-1]
-    if last < end - 1:
-        cursor = times[last][1]
-        for k in range(last + 1, end):
-            e = cursor + MAX_WORD_DURATION
-            times[k] = (cursor, e)
-            cursor = e
 
 
 def _default_cache_path(lyrics_path) -> Path:
@@ -266,7 +352,7 @@ def sync_cache_is_current(data: dict, audio_path: str, lyrics_path: str) -> bool
     """Comprueba que una cache pertenezca exactamente a los archivos actuales."""
     try:
         return (
-            data.get("cache_version") in {2, CACHE_VERSION}
+            data.get("cache_version") == CACHE_VERSION
             and data.get("audio_signature") == _audio_signature(audio_path)
             and data.get("lyrics_signature") == _lyrics_signature(lyrics_path)
         )
@@ -287,11 +373,6 @@ def _atomic_json_write(path: Path, data: dict) -> None:
     finally:
         if os.path.exists(tmp_name):
             os.unlink(tmp_name)
-
-
-def _lyrics_prompt(stanzas: list) -> str:
-    text = " ".join(line for stanza in stanzas for line in stanza)
-    return text[:PROMPT_MAX_CHARS]
 
 
 def _sanitize_word_times(times, matched_flags, total_duration):
@@ -337,6 +418,51 @@ def _sanitize_word_times(times, matched_flags, total_duration):
             matched_flags[index] = False
 
     return cleaned, repaired
+
+
+def _drop_unreliable_anchors(times, matched_flags, confidences, source_segments=None):
+    """Descarta marcas de Whisper que claramente abarcan silencios largos.
+
+    En voces tenues Whisper puede emitir una palabra al inicio de un segmento
+    y la siguiente 15-20 segundos después. Conservar esa primera marca hace
+    que una línea de dos segundos dure todo el instrumental. La palabra vuelve
+    a ser aproximada y se reconstruye entre anclas vecinas más sanas.
+    """
+    matched_indices = [index for index, item in enumerate(times) if item is not None]
+    for position, index in enumerate(matched_indices):
+        start, end = times[index]
+        confidence = confidences[index]
+        # Una vocal sostenida puede durar más de MAX_WORD_DURATION y seguir
+        # siendo una ancla válida (por ejemplo "love" antes de un solo).
+        # Solo una marca individual de duración extrema es sospechosa por sí
+        # sola; los saltos internos se evalúan abajo junto con la confianza.
+        unreliable = end - start > MAX_GAP_TO_STRETCH
+
+        if position + 1 < len(matched_indices):
+            next_index = matched_indices[position + 1]
+            next_start = times[next_index][0]
+            adjacent_in_lyrics = next_index == index + 1
+            same_source_segment = (
+                source_segments is not None
+                and source_segments[index] is not None
+                and source_segments[index] == source_segments[next_index]
+            )
+            low_confidence = confidence is None or confidence < 0.35
+            if (
+                adjacent_in_lyrics
+                and same_source_segment
+                and next_start - end > MAX_GAP_TO_STRETCH
+                and low_confidence
+            ):
+                unreliable = True
+
+        if confidence is not None and confidence < 0.005:
+            unreliable = True
+
+        if unreliable:
+            times[index] = None
+            matched_flags[index] = False
+            confidences[index] = None
 
 
 def _word_weight(text: str) -> float:
@@ -434,7 +560,10 @@ def _quality_report(direct_flags, repaired_flags, confidences, auto_flags=None):
     return {
         "score": round(score, 1),
         "label": label,
-        "playable": label != "baja",
+        # "revisar" significa que todavía hay demasiadas aproximaciones para
+        # exportar sin inspección. Antes se publicaba como reproducible y la
+        # interfaz daba una falsa sensación de éxito.
+        "playable": label in {"alta", "buena"},
         "direct_words": direct,
         "auto_refined_words": automatic,
         "total_words": total,
@@ -470,21 +599,11 @@ def quality_from_stanzas(stanzas: list) -> dict:
     return quality
 
 
-def upgrade_sync_cache(data: dict) -> bool:
-    """Migra una cache anterior al refinamiento automático sin transcribir de nuevo."""
-    if data.get("cache_version") != 2 or not isinstance(data.get("stanzas"), list):
-        return False
-    _auto_refine_stanzas(data["stanzas"])
-    data["cache_version"] = CACHE_VERSION
-    data["quality"] = quality_from_stanzas(data["stanzas"])
-    return True
-
-
 def align_lyrics_to_audio(
     audio_path: str,
     lyrics_path: str,
-    language: str = "es",
-    model_name: str = "small",
+    language: str = "auto",
+    model_name: str = "medium",
     cache_path: str = None,
     force: bool = False,
     vad="auditok",
@@ -508,7 +627,7 @@ def align_lyrics_to_audio(
         así Whisper no se confunde con la música de fondo.
       - vad="auditok" (o "silero") descarta las zonas sin voz, evitando que
         Whisper alucine letra sobre los instrumentales.
-      - model_name="small" por defecto (mejor que "base" para tiempos).
+      - model_name="medium" por defecto para evitar perder versos tenues.
 
     Usa un archivo cache (.sync.json) para no re-procesar cada vez.
     """
@@ -523,7 +642,7 @@ def align_lyrics_to_audio(
     config_sig = {
         "model": model_name,
         "language": language,
-        "vad": vad if isinstance(vad, (str, bool)) else True,
+        "vad": vad if isinstance(vad, (str, bool)) else None,
         "separate_vocals": bool(separate_vocals),
     }
 
@@ -540,8 +659,6 @@ def align_lyrics_to_audio(
             with open(cache_path, "r", encoding="utf-8") as f:
                 cached = json.load(f)
             if sync_cache_is_current(cached, audio_path, lyrics_path) and cached.get("config") == config_sig:
-                if upgrade_sync_cache(cached):
-                    _atomic_json_write(cache_path, cached)
                 print(f"Usando sincronización cacheada: {cache_path}")
                 _pc("Usando sincronización cacheada", 100)
                 return cached
@@ -552,17 +669,12 @@ def align_lyrics_to_audio(
     stanzas_raw = parse_lyrics_file(lyrics_path)
 
     lyrics_tokens = []
-    line_ranges = []  # (start_idx, end_idx) de cada línea con al menos un token
     for stanza in stanzas_raw:
         for line in stanza:
-            start_idx = len(lyrics_tokens)
             for word in line.split():
                 norm = normalize_word(word)
                 if norm:
                     lyrics_tokens.append(norm)
-            end_idx = len(lyrics_tokens)
-            if end_idx > start_idx:
-                line_ranges.append((start_idx, end_idx))
 
     # Audio que se usará para transcribir: por defecto, la voz aislada.
     transcribe_audio = audio_path
@@ -581,11 +693,15 @@ def align_lyrics_to_audio(
         language,
         model_name,
         vad=vad,
-        initial_prompt=_lyrics_prompt(stanzas_raw),
+        # Pasar la letra como prompt hacía que Whisper inventara el comienzo
+        # sobre el instrumental y, al truncarse en 480 caracteres, perdiera
+        # guía exactamente a mitad de la canción. La letra se usa solo para
+        # el alineamiento posterior, no para sesgar la transcripción.
+        initial_prompt=None,
     )
 
     whisper_words = []
-    for seg in transcription.get("segments", []):
+    for segment_index, seg in enumerate(transcription.get("segments", [])):
         for w in seg.get("words", []):
             norm = normalize_word(w.get("text", ""))
             if norm:
@@ -594,33 +710,34 @@ def align_lyrics_to_audio(
                     confidence = float(confidence) if confidence is not None else None
                 except (TypeError, ValueError):
                     confidence = None
-                whisper_words.append((norm, w["start"], w["end"], confidence))
-    whisper_tokens = [w[0] for w in whisper_words]
-
+                whisper_words.append((norm, w["start"], w["end"], confidence, segment_index))
     _pc("Alineando letra con audio", 90)
     lyric_word_times = [None] * len(lyrics_tokens)
     matched_confidences = [None] * len(lyrics_tokens)
-    sm = difflib.SequenceMatcher(a=whisper_tokens, b=lyrics_tokens, autojunk=False)
-    for block in sm.get_matching_blocks():
-        for k in range(block.size):
-            lyric_word_times[block.b + k] = (
-                whisper_words[block.a + k][1],
-                whisper_words[block.a + k][2],
-            )
-            matched_confidences[block.b + k] = whisper_words[block.a + k][3]
+    matched_segments = [None] * len(lyrics_tokens)
+    aligned_words = _align_word_sequences(whisper_words, lyrics_tokens)
+    for lyric_index, whisper_index in aligned_words.items():
+        lyric_word_times[lyric_index] = (
+            whisper_words[whisper_index][1],
+            whisper_words[whisper_index][2],
+        )
+        matched_confidences[lyric_index] = whisper_words[whisper_index][3]
+        matched_segments[lyric_index] = whisper_words[whisper_index][4]
 
     # Guardamos qué palabras reconoció Whisper (tiempos fiables) vs. cuáles
     # se rellenaron por interpolación (tiempos aproximados).
     matched_flags = [t is not None for t in lyric_word_times]
+    _drop_unreliable_anchors(
+        lyric_word_times,
+        matched_flags,
+        matched_confidences,
+        matched_segments,
+    )
 
-    # Pasada 1: rellenar cada línea con sus propias anclas (mantiene cada
-    # línea coherente y evita arrastrar palabras a la línea siguiente).
-    for start_idx, end_idx in line_ranges:
-        _fill_line_internal(lyric_word_times, start_idx, end_idx)
-
-    # Pasada 2: resolver líneas que quedaron completamente sin reconocer,
-    # usando el contexto de las palabras ya ubicadas alrededor.
-    _fill_missing_times(lyric_word_times, duration)
+    # Resolver todas las omisiones en una sola pasada global. Rellenar primero
+    # por línea hacía que una ancla errónea invadiera la siguiente estrofa y
+    # que el saneador descartara en cascada tiempos fiables posteriores.
+    _fill_missing_times(lyric_word_times, duration, lyrics_tokens)
     lyric_word_times, repaired_flags = _sanitize_word_times(
         lyric_word_times, matched_flags, duration
     )
@@ -670,7 +787,7 @@ def align_lyrics_to_audio(
         "lyrics_mtime": Path(lyrics_path).stat().st_mtime,
         "audio_signature": _audio_signature(audio_path),
         "lyrics_signature": _lyrics_signature(lyrics_path),
-        "language": language,
+        "language": transcription.get("language") or language,
         "duration": duration,
         "config": config_sig,
         "stanzas": result_stanzas,
@@ -701,8 +818,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("letra", help="Ruta al archivo .txt con la letra de la canción.")
     parser.add_argument("-a", "--audio", required=True, help="Ruta al archivo de audio (mp3, wav, etc).")
-    parser.add_argument("-l", "--language", default="es", help="Idioma de la canción (ej. es, en).")
-    parser.add_argument("-m", "--model", default="small", help="Modelo Whisper a usar (tiny, base, small, medium...).")
+    parser.add_argument("-l", "--language", default="auto", help="Idioma de la canción (auto, es, en, etc.).")
+    parser.add_argument("-m", "--model", default="medium", help="Modelo Whisper a usar (tiny, base, small, medium...).")
     parser.add_argument("-c", "--cache", default=None, help="Ruta del archivo de cache de salida.")
     parser.add_argument("--force", action="store_true", help="Fuerza re-transcripción aunque exista cache.")
     parser.add_argument("--vad", default="auditok", help="VAD a usar: auditok, silero, o 'none' para desactivar.")
