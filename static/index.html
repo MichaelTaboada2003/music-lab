@@ -186,8 +186,8 @@
       <section class="view" id="view-studio">
         <h1>Generador de Video</h1>
         <p class="hint">
-          Sincroniza la letra de una canción y expórtala como video vertical
-          estilo TikTok. La letra que sincronices aquí también aparece en el Reproductor.
+          Sincroniza la letra de una canción y expórtala en formato Reproductor
+          o Terminal. La misma sincronización también aparece en el reproductor principal.
         </p>
 
         <div class="studio-layout">
@@ -296,94 +296,116 @@
 
           <label>Nombre del archivo de salida</label>
           <input type="text" id="videoOutputName" placeholder="Se usará el nombre de la canción si lo dejas vacío" />
-
-          <fieldset class="video-theme-picker">
-            <legend>Tema visual</legend>
-            <p class="picker-hint">Cambia la paleta del video sin afectar la sincronización ni el formato de la letra.</p>
-            <div class="video-theme-options">
-              <label class="video-theme-option">
-                <input type="radio" name="videoTheme" value="terminal" checked />
-                <span class="video-theme-swatch theme-swatch-terminal" aria-hidden="true"></span>
-                <span class="video-theme-copy">
-                  <span class="video-theme-name">Terminal clásica</span>
-                  <span class="video-theme-description">El look original de NovaLyrics.</span>
+          <fieldset class="video-layout-picker">
+            <legend>Formato de pantalla</legend>
+            <p class="picker-hint">Elige la disposición visual del video (estilo reproductor Music Lab o terminal).</p>
+            <div class="video-layout-options">
+              <label class="video-layout-option">
+                <input type="radio" name="videoLayout" value="player" checked />
+                <span class="video-layout-copy">
+                  <span class="video-layout-name">Formato Reproductor</span>
+                  <span class="video-layout-description">Vista completa: carátula, barra verde, controles y tarjeta de letra karaoke en vivo.</span>
                 </span>
               </label>
-              <label class="video-theme-option">
-                <input type="radio" name="videoTheme" value="midnight" />
-                <span class="video-theme-swatch theme-swatch-midnight" aria-hidden="true"></span>
-                <span class="video-theme-copy">
-                  <span class="video-theme-name">Medianoche eléctrica</span>
-                  <span class="video-theme-description">Azules profundos y brillo frío.</span>
-                </span>
-              </label>
-              <label class="video-theme-option">
-                <input type="radio" name="videoTheme" value="sunset" />
-                <span class="video-theme-swatch theme-swatch-sunset" aria-hidden="true"></span>
-                <span class="video-theme-copy">
-                  <span class="video-theme-name">Atardecer</span>
-                  <span class="video-theme-description">Tonos cálidos para un clip expresivo.</span>
-                </span>
-              </label>
-              <label class="video-theme-option">
-                <input type="radio" name="videoTheme" value="cloud" />
-                <span class="video-theme-swatch theme-swatch-cloud" aria-hidden="true"></span>
-                <span class="video-theme-copy">
-                  <span class="video-theme-name">Nube clara</span>
-                  <span class="video-theme-description">Un acabado limpio y luminoso.</span>
+              <label class="video-layout-option">
+                <input type="radio" name="videoLayout" value="terminal" />
+                <span class="video-layout-copy">
+                  <span class="video-layout-name">Formato Terminal</span>
+                  <span class="video-layout-description">Estilo consola de comandos hacker con ventana chrome `>_`.</span>
                 </span>
               </label>
             </div>
           </fieldset>
 
-          <fieldset class="video-typography-picker">
-            <legend>Tipografía</legend>
-            <p class="picker-hint">La fuente y escala se aplican al título, artista y letra del video.</p>
-            <div class="typography-family-field">
-              <label for="videoFontFamily">Fuente</label>
-              <select id="videoFontFamily">
-                <option value="mono">Monoespaciada · clásica de terminal</option>
-                <option value="modern">Moderna · limpia y contemporánea</option>
-                <option value="editorial">Editorial · con serifas</option>
-              </select>
-            </div>
-            <div class="typography-size-field">
-              <span class="typography-label">Tamaño de letra</span>
-              <div class="typography-size-options">
-                <label class="typography-size-option">
-                  <input type="radio" name="videoFontSize" value="compact" />
-                  <span class="type-sample type-sample-compact">Aa</span>
-                  <span>Compacta</span>
+          <div id="terminalOptionsGroup">
+            <fieldset class="video-theme-picker">
+              <legend>Tema visual</legend>
+              <p class="picker-hint">Cada tema combina contraste, textura y movimiento dentro de la zona segura de TikTok.</p>
+              <div class="video-theme-options">
+                <label class="video-theme-option">
+                  <input type="radio" name="videoTheme" value="terminal" checked />
+                  <span class="video-theme-swatch theme-swatch-terminal" aria-hidden="true"></span>
+                  <span class="video-theme-copy">
+                    <span class="video-theme-topline"><span class="video-theme-name">Terminal Signal</span><span class="video-theme-badge">Original+</span></span>
+                    <span class="video-theme-description">Carbono, retícula técnica y verde de señal.</span>
+                  </span>
                 </label>
-                <label class="typography-size-option">
-                  <input type="radio" name="videoFontSize" value="balanced" checked />
-                  <span class="type-sample type-sample-balanced">Aa</span>
-                  <span>Equilibrada</span>
+                <label class="video-theme-option">
+                  <input type="radio" name="videoTheme" value="midnight" />
+                  <span class="video-theme-swatch theme-swatch-midnight" aria-hidden="true"></span>
+                  <span class="video-theme-copy">
+                    <span class="video-theme-topline"><span class="video-theme-name">Medianoche Neon</span><span class="video-theme-badge">High energy</span></span>
+                    <span class="video-theme-description">Circuitos índigo con pulsos azul y violeta.</span>
+                  </span>
                 </label>
-                <label class="typography-size-option">
-                  <input type="radio" name="videoFontSize" value="large" />
-                  <span class="type-sample type-sample-large">Aa</span>
-                  <span>Grande</span>
+                <label class="video-theme-option">
+                  <input type="radio" name="videoTheme" value="sunset" />
+                  <span class="video-theme-swatch theme-swatch-sunset" aria-hidden="true"></span>
+                  <span class="video-theme-copy">
+                    <span class="video-theme-topline"><span class="video-theme-name">Atardecer Pulse</span><span class="video-theme-badge">Emotive</span></span>
+                    <span class="video-theme-description">Borgoña, coral y ámbar para hooks intensos.</span>
+                  </span>
+                </label>
+                <label class="video-theme-option">
+                  <input type="radio" name="videoTheme" value="cloud" />
+                  <span class="video-theme-swatch theme-swatch-cloud" aria-hidden="true"></span>
+                  <span class="video-theme-copy">
+                    <span class="video-theme-topline"><span class="video-theme-name">Nube Frost</span><span class="video-theme-badge">Clean</span></span>
+                    <span class="video-theme-description">Hielo editorial con tinta y matriz de puntos.</span>
+                  </span>
                 </label>
               </div>
-            </div>
-          </fieldset>
+            </fieldset>
 
-          <fieldset class="lyric-style-picker">
-            <legend>Formato de letra</legend>
-            <div class="lyric-style-options">
-              <label class="lyric-style-option">
-                <input type="radio" name="videoLyricStyle" value="karaoke" checked />
-                <span class="lyric-style-name">Karaoke terminal</span>
-                <span class="lyric-style-description">Formato actual: mantiene visible la estrofa y resalta la palabra activa.</span>
-              </label>
-              <label class="lyric-style-option">
-                <input type="radio" name="videoLyricStyle" value="typing" />
-                <span class="lyric-style-name">Escritura progresiva</span>
-                <span class="lyric-style-description">Formato clásico: las palabras aparecen una a una mientras avanza la canción.</span>
-              </label>
-            </div>
-          </fieldset>
+            <fieldset class="video-typography-picker">
+              <legend>Tipografía</legend>
+              <p class="picker-hint">La fuente y escala se aplican al título, artista y letra del video.</p>
+              <div class="typography-family-field">
+                <label for="videoFontFamily">Fuente</label>
+                <select id="videoFontFamily">
+                  <option value="mono">Monoespaciada · clásica de terminal</option>
+                  <option value="modern">Moderna · limpia y contemporánea</option>
+                  <option value="editorial">Editorial · con serifas</option>
+                </select>
+              </div>
+              <div class="typography-size-field">
+                <span class="typography-label">Tamaño de letra</span>
+                <div class="typography-size-options">
+                  <label class="typography-size-option">
+                    <input type="radio" name="videoFontSize" value="compact" />
+                    <span class="type-sample type-sample-compact">Aa</span>
+                    <span>Compacta</span>
+                  </label>
+                  <label class="typography-size-option">
+                    <input type="radio" name="videoFontSize" value="balanced" checked />
+                    <span class="type-sample type-sample-balanced">Aa</span>
+                    <span>Equilibrada</span>
+                  </label>
+                  <label class="typography-size-option">
+                    <input type="radio" name="videoFontSize" value="large" />
+                    <span class="type-sample type-sample-large">Aa</span>
+                    <span>Grande</span>
+                  </label>
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset class="lyric-style-picker">
+              <legend>Formato de letra</legend>
+              <div class="lyric-style-options">
+                <label class="lyric-style-option">
+                  <input type="radio" name="videoLyricStyle" value="karaoke" checked />
+                  <span class="lyric-style-name">Karaoke terminal</span>
+                  <span class="lyric-style-description">Formato actual: mantiene visible la estrofa y resalta la palabra activa.</span>
+                </label>
+                <label class="lyric-style-option">
+                  <input type="radio" name="videoLyricStyle" value="typing" />
+                  <span class="lyric-style-name">Escritura progresiva</span>
+                  <span class="lyric-style-description">Formato clásico: las palabras aparecen una a una mientras avanza la canción.</span>
+                </label>
+              </div>
+            </fieldset>
+          </div>
 
           <div class="section-sep">
             <span>Fragmento a exportar</span>
@@ -443,20 +465,58 @@
             </div>
             <!-- Replica el look de la exportación final y permanece visible al ajustar el fragmento. -->
             <div class="term-stage" id="fragPreviewStage" hidden>
+              <button class="term-close" id="fragPreviewClose" title="Cerrar">×</button>
               <div class="term-titlebar">
                 <span class="term-dot term-dot-red"></span>
                 <span class="term-dot term-dot-yellow"></span>
                 <span class="term-dot term-dot-green"></span>
                 <span class="term-label" id="fragPreviewLabel">NovaLyrics</span>
-                <button class="term-close" id="fragPreviewClose" title="Cerrar">×</button>
               </div>
               <div class="term-body">
                 <div class="term-header">
-                  <span class="term-prompt">&gt;</span>
+                  <span class="term-prompt">&gt;_</span>
                   <span class="term-title" id="fragPreviewTitle"></span>
                   <div class="term-artist" id="fragPreviewArtist"></div>
                 </div>
-                <div class="term-lyrics" id="fragPreviewLyrics"></div>
+                <div class="term-output">
+                  <div class="term-lyrics" id="fragPreviewLyrics"></div>
+                </div>
+              </div>
+              <!-- Componentes 1:1 del reproductor (solo visibles en Formato Reproductor) -->
+              <div class="player-preview-body">
+                <div class="player-preview-card">
+                  <div class="player-preview-artwork">
+                    <div class="player-preview-artwork-fallback" id="playerPreviewArtworkFallback">ML</div>
+                    <img id="playerPreviewArtworkImage" alt="Carátula" hidden />
+                  </div>
+                  <div class="player-preview-meta">
+                    <div class="player-preview-kicker">
+                      <span>AHORA SUENA</span>
+                      <span class="player-preview-status"><span class="player-preview-kicker-dot"></span>REPRODUCIENDO</span>
+                    </div>
+                    <div class="player-preview-title" id="playerPreviewTitle">Sin canción</div>
+                    <div class="player-preview-artist" id="playerPreviewArtist"></div>
+                    <div class="player-preview-progress">
+                      <span id="playerPreviewCurrentTime">0:00</span>
+                      <div class="player-preview-bar"><div class="player-preview-fill" id="playerPreviewFill"></div></div>
+                      <span id="playerPreviewDuration">0:00</span>
+                    </div>
+                    <div class="player-preview-controls">
+                      <span class="player-preview-btn" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 6v12M18 6l-6 6 6 6"/></svg></span>
+                      <span class="player-preview-btn play-active" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 7v10M15 7v10"/></svg></span>
+                      <span class="player-preview-btn" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 6l6 6-6 6M17 5v13"/></svg></span>
+                    </div>
+                    <div class="player-preview-volume" aria-hidden="true">
+                      <svg viewBox="0 0 24 24"><path d="M15 8a5 5 0 0 1 0 8M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l3.5-4.5A.8.8 0 0 1 11 5v14a.8.8 0 0 1-1.5.5L6 15"/></svg>
+                      <span><i></i></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="player-preview-lyrics-card">
+                  <div class="player-preview-lyrics-viewport">
+                    <div class="player-preview-lyrics" id="playerPreviewLyrics"></div>
+                  </div>
+                </div>
               </div>
             </div>
           </aside>

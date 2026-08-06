@@ -27,6 +27,7 @@ const fragPreviewClose = document.getElementById("fragPreviewClose");
 const fragPreviewLabel = document.getElementById("fragPreviewLabel");
 const fragPreviewTitle = document.getElementById("fragPreviewTitle");
 const fragPreviewArtist = document.getElementById("fragPreviewArtist");
+const videoLayoutInputs = document.querySelectorAll('input[name="videoLayout"]');
 const lyricStyleInputs = document.querySelectorAll('input[name="videoLyricStyle"]');
 const videoThemeInputs = document.querySelectorAll('input[name="videoTheme"]');
 const videoFontFamily = document.getElementById("videoFontFamily");
@@ -49,6 +50,10 @@ const LYRIC_STYLE_LABELS = {
 };
 const TERMINAL_TITLE = "NovaLyrics";
 
+function selectedVideoLayout() {
+  return document.querySelector('input[name="videoLayout"]:checked')?.value || "player";
+}
+
 function selectedLyricStyle() {
   return document.querySelector('input[name="videoLyricStyle"]:checked')?.value || "karaoke";
 }
@@ -61,9 +66,19 @@ function selectedFontSize() {
   return document.querySelector('input[name="videoFontSize"]:checked')?.value || "balanced";
 }
 
+function updateLayoutVisibility() {
+  const terminalGroup = document.getElementById("terminalOptionsGroup");
+  if (terminalGroup) {
+    terminalGroup.hidden = selectedVideoLayout() !== "terminal";
+  }
+}
+
 function applyPreviewLyricStyle() {
+  updateLayoutVisibility();
   if (!fragPreviewStage) return;
   const style = selectedLyricStyle();
+  const layout = selectedVideoLayout();
+  fragPreviewStage.dataset.videoLayout = layout;
   fragPreviewStage.dataset.lyricStyle = style;
   fragPreviewStage.dataset.videoTheme = selectedVideoTheme();
   fragPreviewStage.dataset.videoFont = videoFontFamily?.value || "mono";
@@ -92,7 +107,7 @@ function updateStudioTrackContext() {
   }
 
   studioTrackTitle.textContent = song.title || song.stem;
-  studioTrackArtist.textContent = song.artist || "Biblioteca local";
+  studioTrackArtist.textContent = song.artist || "";
   studioArtworkFallback.textContent = _studioInitials(song);
   studioArtworkImage.hidden = true;
   studioArtworkImage.alt = `Carátula de ${song.title || song.stem}`;
@@ -126,7 +141,7 @@ export async function onStudioSongChange() {
   if (fragPreviewStage) fragPreviewStage.hidden = true;
   if (studioPreviewEmpty) studioPreviewEmpty.hidden = false;
   updateStudioTrackContext();
-  
+
   // Detener la voz si estaba reproduciéndose
   if (studioVocalsAudio) {
     studioVocalsAudio.pause();
@@ -309,11 +324,31 @@ fragPreviewBtn.addEventListener("click", async () => {
   const start = parseFloat(fragStartInput.value) || 0;
   const end = fragEndInput.value ? parseFloat(fragEndInput.value) : null;
 
-  // Rellenar cabecera de la terminal con título/artista del formulario.
+  // Rellenar metadatos en cabecera terminal y reproductor.
   const titulo = document.getElementById("videoTitulo").value.trim() || song.title || stem;
   const artista = document.getElementById("videoArtista").value.trim() || song.artist || "";
   fragPreviewTitle.textContent = titulo;
-  fragPreviewArtist.textContent = artista ? `por ${artista}` : "";
+  fragPreviewArtist.textContent = artista;
+
+  const playerPreviewTitle = document.getElementById("playerPreviewTitle");
+  const playerPreviewArtist = document.getElementById("playerPreviewArtist");
+  const playerPreviewArtworkImage = document.getElementById("playerPreviewArtworkImage");
+  const playerPreviewArtworkFallback = document.getElementById("playerPreviewArtworkFallback");
+
+  if (playerPreviewTitle) playerPreviewTitle.textContent = titulo;
+  if (playerPreviewArtist) playerPreviewArtist.textContent = artista;
+  if (playerPreviewArtworkFallback) playerPreviewArtworkFallback.textContent = _studioInitials(song);
+  fragPreviewStage.style.setProperty(
+    "--player-preview-cover",
+    `url("/api/canciones/${encodeURIComponent(song.stem)}/cover")`
+  );
+  if (playerPreviewArtworkImage) {
+    playerPreviewArtworkImage.hidden = true;
+    playerPreviewArtworkImage.onload = () => { playerPreviewArtworkImage.hidden = false; };
+    playerPreviewArtworkImage.onerror = () => { playerPreviewArtworkImage.hidden = true; };
+    playerPreviewArtworkImage.src = `/api/canciones/${encodeURIComponent(song.stem)}/cover`;
+  }
+
   applyPreviewLyricStyle();
   fragPreviewLabel.textContent = TERMINAL_TITLE;
 
@@ -321,8 +356,7 @@ fragPreviewBtn.addEventListener("click", async () => {
   fragPreviewStage.hidden = false;
   if (studioPreviewEmpty) studioPreviewEmpty.hidden = true;
 
-  // Audio: recargamos, buscamos al start y reproducimos. Sin controles
-  // visibles porque el foco está en la terminal.
+  // Audio: recargamos, buscamos al start y reproducimos.
   fragPreviewAudio.src = `/canciones/${encodeURIComponent(song.nombre)}`;
   if (fragStopHandler)
     fragPreviewAudio.removeEventListener("timeupdate", fragStopHandler);
@@ -338,8 +372,6 @@ fragPreviewBtn.addEventListener("click", async () => {
 
   const seekAndPlay = () => {
     fragPreviewAudio.currentTime = start;
-    // Algunos navegadores bloquean audio programático; la terminal sigue
-    // siendo útil como previsualización visual aunque el audio no arranque.
     fragPreviewAudio.play().catch(() => {});
   };
   if (fragPreviewAudio.readyState >= 1) seekAndPlay();
@@ -352,6 +384,18 @@ fragPreviewClose.addEventListener("click", () => {
   fragPreviewAudio.pause();
   _stopFragLoop();
 });
+
+videoLayoutInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    updateLayoutVisibility();
+    if (!fragPreviewStage.hidden) {
+      applyPreviewLyricStyle();
+      if (_fragState.stanzas) _renderTerminalLyrics(_fragState.stanzas);
+      _updateFragTerminal();
+    }
+  });
+});
+updateLayoutVisibility();
 
 lyricStyleInputs.forEach((input) => {
   input.addEventListener("change", () => {
@@ -378,22 +422,127 @@ videoFontSizeInputs.forEach((input) => {
   });
 });
 
-// ---- Renderizado tipo terminal ----------------------------------------------
-// Cada palabra empieza como .term-word (invisible). En cada frame marcamos
-// como .revealed las que ya empezaron, y movemos el cursor tras la última.
-// Solo mostramos la estrofa activa en cada momento — igual que el generador
-// de video, que solo dibuja la estrofa cuya primera palabra ya sonó.
+// ---- Renderizado de previsualización (Terminal / Reproductor 1:1) ------------
 
-const _fragState = { stanzas: null, activeStanza: null };
+const _fragState = {
+  stanzas: null,
+  activeStanza: null,
+  activePlayerLine: null,
+};
 
 function _renderTerminalLyrics(stanzas) {
   _fragState.stanzas = stanzas;
   _fragState.activeStanza = null;
-  fragPreviewLyrics.innerHTML = "";
+  _fragState.activePlayerLine = null;
+  const playerPreviewLyrics = document.getElementById("playerPreviewLyrics");
+  if (playerPreviewLyrics) {
+    playerPreviewLyrics.innerHTML = "";
+    playerPreviewLyrics.style.transform = "translateY(0px)";
+  }
+  if (fragPreviewLyrics) fragPreviewLyrics.innerHTML = "";
+  if (selectedVideoLayout() === "player") _buildStanzaDomPlayer(stanzas);
+}
+
+function _buildStanzaDomPlayer(stanzas) {
+  const playerPreviewLyrics = document.getElementById("playerPreviewLyrics");
+  if (!playerPreviewLyrics) return;
+  playerPreviewLyrics.innerHTML = "";
+  stanzas.flat().forEach((line) => {
+    const l = document.createElement("div");
+    l.className = "player-line";
+    l.dataset.start = line.start;
+    l.dataset.end = line.end;
+    const words = line.words && line.words.length
+      ? line.words
+      : [{ text: line.text, start: line.start, end: line.end }];
+    words.forEach((w, i) => {
+      const sp = document.createElement("span");
+      sp.className = "player-word";
+      sp.textContent = w.text;
+      sp.dataset.start = w.start;
+      sp.dataset.end = w.end;
+      sp.style.setProperty("--p", "0%");
+      l.appendChild(sp);
+      if (i < words.length - 1) l.appendChild(document.createTextNode(" "));
+    });
+    playerPreviewLyrics.appendChild(l);
+  });
+}
+
+function _setPlayerLineFill(line, t, state) {
+  line.querySelectorAll(".player-word").forEach((word) => {
+    const start = Number.parseFloat(word.dataset.start);
+    const end = Number.parseFloat(word.dataset.end);
+    let progress = state === "past" ? 1 : 0;
+    if (state === "active") {
+      const duration = Math.max(0.001, end - start);
+      progress = Math.max(0, Math.min(1, (t - start) / duration));
+    }
+    word.style.setProperty("--p", `${(progress * 100).toFixed(2)}%`);
+  });
+}
+
+function _updatePlayerPreview(t, stanzas) {
+  const playerPreviewLyrics = document.getElementById("playerPreviewLyrics");
+  if (!playerPreviewLyrics) return;
+  const lines = [...playerPreviewLyrics.querySelectorAll(".player-line")];
+  if (!lines.length) return;
+
+  let activeIndex = 0;
+  lines.forEach((line, index) => {
+    if (Number.parseFloat(line.dataset.start) <= t) activeIndex = index;
+  });
+
+  lines.forEach((line, index) => {
+    const state = index < activeIndex ? "past" : index === activeIndex ? "active" : "future";
+    line.classList.toggle("past", state === "past");
+    line.classList.toggle("active", state === "active");
+    line.classList.toggle("future", state === "future");
+    _setPlayerLineFill(line, t, state);
+  });
+
+  const activeLine = lines[activeIndex];
+  if (activeLine !== _fragState.activePlayerLine) {
+    _fragState.activePlayerLine = activeLine;
+    const viewport = playerPreviewLyrics.closest(".player-preview-lyrics-viewport");
+    if (viewport) {
+      const activeCenter = activeLine.offsetTop + activeLine.offsetHeight / 2;
+      const targetCenter = viewport.clientHeight * 0.74;
+      playerPreviewLyrics.style.transform = `translateY(${targetCenter - activeCenter}px)`;
+    }
+  }
+
+  const lyricEnd = stanzas.flat().reduce(
+    (maxEnd, line) => Math.max(maxEnd, Number.parseFloat(line.end) || 0),
+    0
+  );
+  const duration = Number.isFinite(fragPreviewAudio.duration)
+    ? fragPreviewAudio.duration
+    : lyricEnd;
+  const currentLabel = document.getElementById("playerPreviewCurrentTime");
+  const durationLabel = document.getElementById("playerPreviewDuration");
+  const progressFill = document.getElementById("playerPreviewFill");
+  if (currentLabel) currentLabel.textContent = formatSeconds(Math.max(0, t));
+  if (durationLabel) durationLabel.textContent = formatSeconds(Math.max(0, duration));
+  if (progressFill) {
+    const progress = duration > 0 ? Math.max(0, Math.min(1, t / duration)) : 0;
+    progressFill.style.width = `${(progress * 100).toFixed(2)}%`;
+  }
 }
 
 function _buildStanzaDom(stanza) {
   fragPreviewLyrics.innerHTML = "";
+  const totalChars = stanza.reduce((sum, line) => sum + (line.text || "").length, 0);
+  const estimatedWrappedLines = stanza.reduce(
+    (sum, line) => sum + Math.max(1, Math.ceil((line.text || "").length / 24)),
+    0
+  );
+  fragPreviewLyrics.dataset.density =
+    totalChars > 170 || estimatedWrappedLines > 8
+      ? "very-dense"
+      : totalChars > 105 || estimatedWrappedLines > 5
+        ? "dense"
+        : "normal";
   stanza.forEach((line) => {
     const l = document.createElement("div");
     l.className = "term-line";
@@ -405,12 +554,12 @@ function _buildStanzaDom(stanza) {
       sp.className = "term-word";
       sp.textContent = w.text;
       sp.dataset.start = w.start;
+      sp.dataset.end = w.end;
       l.appendChild(sp);
       if (i < words.length - 1) l.appendChild(document.createTextNode(" "));
     });
     fragPreviewLyrics.appendChild(l);
   });
-  // Cursor único (se mueve tras la última palabra revelada en cada tick).
   const cursor = document.createElement("span");
   cursor.className = "term-cursor";
   cursor.textContent = "█";
@@ -422,7 +571,11 @@ function _updateFragTerminal() {
   if (!stanzas) return;
   const t = fragPreviewAudio.currentTime;
 
-  // Encontrar la estrofa activa: la última cuya primera palabra ya empezó.
+  if (selectedVideoLayout() === "player") {
+    _updatePlayerPreview(t, stanzas);
+    return;
+  }
+
   let active = null;
   for (const stanza of stanzas) {
     if (!stanza.length) continue;
@@ -496,6 +649,7 @@ videoGenerateBtn.addEventListener("click", async () => {
     fragStartInput.value !== "" ? parseFloat(fragStartInput.value) : null;
   const end_time =
     fragEndInput.value !== "" ? parseFloat(fragEndInput.value) : null;
+  const layout_style = selectedVideoLayout();
   const lyric_style = selectedLyricStyle();
   const theme = selectedVideoTheme();
   const font_family = videoFontFamily?.value || "mono";
@@ -516,6 +670,7 @@ videoGenerateBtn.addEventListener("click", async () => {
         artista,
         start_time,
         end_time,
+        layout_style,
         lyric_style,
         theme,
         font_family,
