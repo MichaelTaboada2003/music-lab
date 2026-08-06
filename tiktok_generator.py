@@ -502,7 +502,7 @@ def _draw_player_controls(draw, center_x, center_y):
 
 
 def build_player_scene(fonts, title=None, artist=None, video_size=PLAYER_VIDEO_SIZE,
-                       theme_name="terminal", cover_path=None):
+                       theme_name="terminal", cover_path=None, audio_volume=1.0):
     del fonts, theme_name
     width, height = video_size
     fonts = _player_fonts()
@@ -570,18 +570,22 @@ def build_player_scene(fonts, title=None, artist=None, video_size=PLAYER_VIDEO_S
     draw.rounded_rectangle((prog_left, prog_y, prog_right, prog_y + 8), radius=4, fill=(62, 60, 63))
     _draw_player_controls(draw, p_left + card_w // 2, p_top + 906)
 
-    # Volumen a 50%, como en la vista principal.
+    # El riel refleja el volumen real configurado para esta exportación.
     vol_y = p_top + 996
     draw.polygon(
         ((p_left + 40, vol_y), (p_left + 52, vol_y), (p_left + 68, vol_y - 14), (p_left + 68, vol_y + 14), (p_left + 52, vol_y + 3), (p_left + 40, vol_y + 3)),
         fill=(165, 167, 178),
     )
-    draw.rounded_rectangle((p_left + 92, vol_y - 3, p_right - 38, vol_y + 5), radius=4, fill=(80, 78, 84))
-    knob_x = p_left + 92 + int((p_right - 38 - (p_left + 92)) * 0.5)
+    vol_left, vol_right = p_left + 92, p_right - 38
+    volume_ratio = max(0.0, min(1.0, float(audio_volume)))
+    draw.rounded_rectangle((vol_left, vol_y - 3, vol_right, vol_y + 5), radius=4, fill=(80, 78, 84))
+    knob_x = vol_left + int((vol_right - vol_left) * volume_ratio)
+    if knob_x > vol_left:
+        draw.rounded_rectangle((vol_left, vol_y - 3, knob_x, vol_y + 5), radius=4, fill=(165, 167, 178))
     draw.ellipse((knob_x - 12, vol_y - 13, knob_x + 12, vol_y + 11), fill=(248, 248, 250))
 
-    # Escenario de letra a la derecha, igual a la segunda columna de la página.
-    l_left, l_top, l_right, l_bottom = 760, 250, width - 40, height - 30
+    # Las dos tarjetas comparten exactamente la misma altura.
+    l_left, l_top, l_right, l_bottom = 760, p_top, width - 40, p_bottom
     lyrics_w, lyrics_h = l_right - l_left, l_bottom - l_top
     lyrics_overlay = Image.new("RGBA", (lyrics_w, lyrics_h), (0, 0, 0, 0))
     l_draw = ImageDraw.Draw(lyrics_overlay)
@@ -599,11 +603,12 @@ def build_player_scene(fonts, title=None, artist=None, video_size=PLAYER_VIDEO_S
 
 def build_karaoke_scene(fonts, title=None, artist=None, video_size=VIDEO_SIZE,
                         layout_style="player", lyric_style="karaoke", theme_name="terminal",
-                        cover_path=None):
+                        cover_path=None, audio_volume=1.0):
     """Construye la escena base según el layout seleccionado ('player' o 'terminal')."""
     if layout_style == "player":
         return build_player_scene(fonts, title=title, artist=artist, video_size=video_size,
-                                  theme_name=theme_name, cover_path=cover_path)
+                                  theme_name=theme_name, cover_path=cover_path,
+                                  audio_volume=audio_volume)
 
     theme = _theme_for(theme_name)
     base = _build_theme_background(video_size, theme)
@@ -798,8 +803,8 @@ def _draw_player_frame_content(img, stanzas, current_time, audio_duration=None):
     duration_w = _text_width(draw, duration_label, fonts["time"])
     draw.text((p_right - 38 - duration_w, label_y), duration_label, font=fonts["time"], fill=(139, 141, 151))
 
-    # Scroll de letras: la activa permanece nítida y las vecinas se desplazan
-    # alrededor de ella con el mismo desenfoque/máscara visual de la página.
+    # Lectura descendente: la línea activa queda cerca del borde superior y
+    # las siguientes se distribuyen hacia abajo, sin arrancar en el centro.
     lines = _flatten_lyric_lines(stanzas)
     if not lines:
         return
@@ -811,20 +816,19 @@ def _draw_player_frame_content(img, stanzas, current_time, audio_duration=None):
             break
 
     center_x = (760 + 1880) / 2
-    active_y = 835
+    active_y = 125
     line_gap = 118
     max_width = 1000
-    for index in range(max(0, active_index - 3), min(len(lines), active_index + 3)):
+    for index in range(active_index, min(len(lines), active_index + 8)):
         line = lines[index]
         delta = index - active_index
         y = active_y + delta * line_gap
         if delta == 0:
             _draw_player_active_line(img, line, current_time, center_x, y, max_width)
         else:
-            is_past = delta < 0
-            distance = abs(delta)
+            distance = delta
             alpha = max(38, 112 - distance * 24)
-            color = (30, 215, 96, alpha) if is_past else (164, 166, 176, alpha)
+            color = (164, 166, 176, alpha)
             _draw_player_dim_line(
                 img,
                 line.get("text") or "",
@@ -839,12 +843,12 @@ def _draw_player_frame_content(img, stanzas, current_time, audio_duration=None):
 def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
                        video_size=VIDEO_SIZE, scene_image=None,
                        layout_style="player", lyric_style="karaoke", theme_name="terminal",
-                       cover_path=None, audio_duration=None):
+                       cover_path=None, audio_duration=None, audio_volume=1.0):
     width, height = video_size
     img = scene_image.copy() if scene_image is not None else build_karaoke_scene(
         fonts, title=title, artist=artist, video_size=video_size,
         layout_style=layout_style, lyric_style=lyric_style, theme_name=theme_name,
-        cover_path=cover_path,
+        cover_path=cover_path, audio_volume=audio_volume,
     )
     draw = ImageDraw.Draw(img)
     theme = _theme_for(theme_name)
@@ -935,12 +939,15 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
                          end_time=None, title=None, artist=None,
                          vad="auditok", separate_vocals=True,
                          layout_style="player",
+                         audio_volume=1.0,
                          lyric_style="karaoke",
                          theme="terminal",
                          font_family="mono", font_size="balanced",
                          progress_cb=None):
     if layout_style not in {"player", "terminal"}:
         raise ValueError("El formato de pantalla debe ser 'player' o 'terminal'.")
+    if not 0.0 <= audio_volume <= 1.0:
+        raise ValueError("El volumen del audio debe estar entre 0.0 y 1.0.")
     if lyric_style not in {"karaoke", "typing"}:
         raise ValueError("El formato de letra debe ser 'karaoke' o 'typing'.")
     _theme_for(theme)
@@ -991,7 +998,7 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
     scene_image = build_karaoke_scene(
         fonts, title=title, artist=artist, video_size=render_size,
         layout_style=layout_style, lyric_style=lyric_style,
-        theme_name=theme, cover_path=cover_path,
+        theme_name=theme, cover_path=cover_path, audio_volume=audio_volume,
     )
 
     frag_start = max(0.0, start_time) if start_time is not None else 0.0
@@ -1000,6 +1007,8 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
         raise ValueError("El fragmento seleccionado no es válido: el fin debe ser mayor que el inicio.")
 
     trimmed_audio = audio_clip.subclipped(frag_start, frag_end)
+    if audio_volume != 1.0:
+        trimmed_audio = trimmed_audio.with_volume_scaled(audio_volume)
     duration = frag_end - frag_start
 
     print(f"Generando video ({frag_start:.1f}s - {frag_end:.1f}s de {full_duration:.1f}s totales)...")
@@ -1011,7 +1020,7 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="es",
             video_size=render_size, scene_image=scene_image,
             layout_style=layout_style,
             lyric_style=lyric_style, theme_name=theme, cover_path=cover_path,
-            audio_duration=full_duration,
+            audio_duration=full_duration, audio_volume=audio_volume,
         )
 
     video_clip = VideoClip(make_frame, duration=duration)
@@ -1043,6 +1052,7 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--titulo", default=None, help="Título a mostrar en el video")
     parser.add_argument("-a", "--artista", default=None, help="Artista a mostrar en el video")
     parser.add_argument("--layout-style", choices=("player", "terminal"), default="player")
+    parser.add_argument("--audio-volume", type=float, default=1.0, help="Volumen del audio exportado entre 0.0 y 1.0")
     parser.add_argument("--lyric-style", choices=("karaoke", "typing"), default="karaoke")
     parser.add_argument("--theme", choices=tuple(VIDEO_THEMES), default="terminal", help="Tema visual del video")
     parser.add_argument("--font-family", choices=tuple(FONT_FAMILIES), default="mono", help="Familia tipográfica de la letra")
@@ -1057,6 +1067,7 @@ if __name__ == "__main__":
         language=args.language, model=args.model, force_sync=args.force_sync,
         start_time=args.start, end_time=args.end, title=args.titulo, artist=args.artista,
         vad=vad_arg, separate_vocals=not args.no_separacion,
-        layout_style=args.layout_style, lyric_style=args.lyric_style,
+        layout_style=args.layout_style, audio_volume=args.audio_volume,
+        lyric_style=args.lyric_style,
         theme=args.theme, font_family=args.font_family, font_size=args.font_size,
     )

@@ -1190,6 +1190,51 @@ h2 {
   line-height: 1.35;
 }
 
+.player-export-settings {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.player-export-settings legend {
+  padding: 0 4px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.player-volume-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.player-volume-setting output {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.player-volume-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.player-volume-control svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  stroke-width: 2;
+}
+
 /* Temas de exportación: la misma paleta se refleja inmediatamente en la
    previsualización y se manda al renderer de Pillow. */
 .video-theme-picker {
@@ -3352,10 +3397,17 @@ body:has(#view-player.active) .mini-player { display: none; }
   border-radius: 99px;
   background: rgba(255, 255, 255, 0.22);
 }
+.player-preview-volume b {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--player-volume, 50%);
+  border-radius: inherit;
+  background: #a7a9b3;
+}
 .player-preview-volume i {
   position: absolute;
   top: 50%;
-  left: 50%;
+  left: var(--player-volume, 50%);
   width: 1.15cqw;
   height: 1.15cqw;
   border-radius: 50%;
@@ -3364,8 +3416,8 @@ body:has(#view-player.active) .mini-player { display: none; }
 }
 
 .player-preview-lyrics-card {
-  align-self: end;
-  height: 76%;
+  align-self: stretch;
+  height: auto;
   min-width: 0;
   overflow: hidden;
   background: radial-gradient(circle at 50% -10%, rgba(31, 34, 41, 0.90), rgba(10, 12, 16, 0.94) 62%);
@@ -3378,8 +3430,8 @@ body:has(#view-player.active) .mini-player { display: none; }
   position: relative;
   height: 100%;
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 20%, #000 82%, transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0%, #000 20%, #000 82%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 88%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 88%, transparent 100%);
 }
 
 .player-preview-lyrics {

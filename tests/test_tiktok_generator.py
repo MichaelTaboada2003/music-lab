@@ -101,6 +101,7 @@ class TikTokThemeTests(unittest.TestCase):
             artist="Bad Bunny (ft Bomba Estéreo)",
             video_size=generator.PLAYER_VIDEO_SIZE,
             layout_style="player",
+            audio_volume=0.5,
         )
 
         first = generator.make_karaoke_frame(
@@ -129,6 +130,30 @@ class TikTokThemeTests(unittest.TestCase):
         self.assertEqual(first.shape, (1080, 1920, 3))
         self.assertEqual(first.dtype, np.uint8)
         self.assertFalse(np.array_equal(first, second))
+
+    def test_player_volume_changes_chrome_and_rejects_invalid_values(self):
+        fonts = generator._build_fonts("modern", "balanced")
+        quiet = np.array(generator.build_karaoke_scene(
+            fonts,
+            video_size=generator.PLAYER_VIDEO_SIZE,
+            layout_style="player",
+            audio_volume=0.25,
+        ))
+        loud = np.array(generator.build_karaoke_scene(
+            fonts,
+            video_size=generator.PLAYER_VIDEO_SIZE,
+            layout_style="player",
+            audio_volume=0.75,
+        ))
+
+        self.assertFalse(np.array_equal(quiet[1000:1045, 120:660], loud[1000:1045, 120:660]))
+        with self.assertRaisesRegex(ValueError, "volumen"):
+            generator.create_tiktok_video(
+                "missing.mp3",
+                "missing.txt",
+                "missing.mp4",
+                audio_volume=1.1,
+            )
 
 
 if __name__ == "__main__":

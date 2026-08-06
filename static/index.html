@@ -317,6 +317,21 @@
             </div>
           </fieldset>
 
+          <div id="playerOptionsGroup">
+            <fieldset class="player-export-settings">
+              <legend>Sonido del reproductor</legend>
+              <p class="picker-hint">Controla el volumen del audio en la previsualización y en el video exportado.</p>
+              <label class="player-volume-setting" for="videoPlayerVolume">
+                <span>Volumen</span>
+                <output id="videoPlayerVolumeValue" for="videoPlayerVolume">50%</output>
+              </label>
+              <div class="player-volume-control">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 8a5 5 0 0 1 0 8"></path><path d="M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l3.5-4.5A.8.8 0 0 1 11 5v14a.8.8 0 0 1-1.5.5L6 15"></path></svg>
+                <input id="videoPlayerVolume" type="range" class="volume-slider" min="0" max="100" step="5" value="50" />
+              </div>
+            </fieldset>
+          </div>
+
           <div id="terminalOptionsGroup">
             <fieldset class="video-theme-picker">
               <legend>Tema visual</legend>
@@ -508,7 +523,7 @@
                     </div>
                     <div class="player-preview-volume" aria-hidden="true">
                       <svg viewBox="0 0 24 24"><path d="M15 8a5 5 0 0 1 0 8M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l3.5-4.5A.8.8 0 0 1 11 5v14a.8.8 0 0 1-1.5.5L6 15"/></svg>
-                      <span><i></i></span>
+                      <span><b></b><i></i></span>
                     </div>
                   </div>
                 </div>

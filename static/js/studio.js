@@ -32,6 +32,8 @@ const lyricStyleInputs = document.querySelectorAll('input[name="videoLyricStyle"
 const videoThemeInputs = document.querySelectorAll('input[name="videoTheme"]');
 const videoFontFamily = document.getElementById("videoFontFamily");
 const videoFontSizeInputs = document.querySelectorAll('input[name="videoFontSize"]');
+const videoPlayerVolume = document.getElementById("videoPlayerVolume");
+const videoPlayerVolumeValue = document.getElementById("videoPlayerVolumeValue");
 const studioTrackTitle = document.getElementById("studioTrackTitle");
 const studioTrackArtist = document.getElementById("studioTrackArtist");
 const studioArtworkImage = document.getElementById("studioArtworkImage");
@@ -66,11 +68,32 @@ function selectedFontSize() {
   return document.querySelector('input[name="videoFontSize"]:checked')?.value || "balanced";
 }
 
+function selectedPlayerVolume() {
+  const percent = Number.parseFloat(videoPlayerVolume?.value ?? "50");
+  return Math.max(0, Math.min(1, percent / 100));
+}
+
+function updatePlayerVolume() {
+  const volume = selectedPlayerVolume();
+  const percent = Math.round(volume * 100);
+  if (videoPlayerVolume) {
+    videoPlayerVolume.style.setProperty("--value", `${percent}%`);
+  }
+  if (videoPlayerVolumeValue) videoPlayerVolumeValue.textContent = `${percent}%`;
+  fragPreviewAudio.volume = selectedVideoLayout() === "player" ? volume : 1;
+  fragPreviewStage?.style.setProperty("--player-volume", `${percent}%`);
+}
+
 function updateLayoutVisibility() {
+  const playerGroup = document.getElementById("playerOptionsGroup");
   const terminalGroup = document.getElementById("terminalOptionsGroup");
+  if (playerGroup) {
+    playerGroup.hidden = selectedVideoLayout() !== "player";
+  }
   if (terminalGroup) {
     terminalGroup.hidden = selectedVideoLayout() !== "terminal";
   }
+  updatePlayerVolume();
 }
 
 function applyPreviewLyricStyle() {
@@ -422,6 +445,9 @@ videoFontSizeInputs.forEach((input) => {
   });
 });
 
+videoPlayerVolume?.addEventListener("input", updatePlayerVolume);
+updatePlayerVolume();
+
 // ---- Renderizado de previsualización (Terminal / Reproductor 1:1) ------------
 
 const _fragState = {
@@ -507,7 +533,7 @@ function _updatePlayerPreview(t, stanzas) {
     const viewport = playerPreviewLyrics.closest(".player-preview-lyrics-viewport");
     if (viewport) {
       const activeCenter = activeLine.offsetTop + activeLine.offsetHeight / 2;
-      const targetCenter = viewport.clientHeight * 0.74;
+      const targetCenter = viewport.clientHeight * 0.14;
       playerPreviewLyrics.style.transform = `translateY(${targetCenter - activeCenter}px)`;
     }
   }
@@ -654,6 +680,7 @@ videoGenerateBtn.addEventListener("click", async () => {
   const theme = selectedVideoTheme();
   const font_family = videoFontFamily?.value || "mono";
   const font_size = selectedFontSize();
+  const audio_volume = layout_style === "player" ? selectedPlayerVolume() : 1;
 
   videoGenerateBtn.disabled = true;
   setStatus(videoStatus, "");
@@ -671,6 +698,7 @@ videoGenerateBtn.addEventListener("click", async () => {
         start_time,
         end_time,
         layout_style,
+        audio_volume,
         lyric_style,
         theme,
         font_family,

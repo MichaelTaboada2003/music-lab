@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import tiktok_generator
 
@@ -31,6 +31,7 @@ class VideoRequest(BaseModel):
     vad: Optional[str] = "auditok"
     separate_vocals: bool = True
     layout_style: Literal["player", "terminal"] = "player"
+    audio_volume: float = Field(default=1.0, ge=0.0, le=1.0)
     lyric_style: Literal["karaoke", "typing"] = "karaoke"
     theme: Literal["terminal", "midnight", "sunset", "cloud"] = "terminal"
     font_family: Literal["mono", "modern", "editorial"] = "mono"
@@ -57,6 +58,7 @@ def api_generar_video(stem: str, payload: VideoRequest):
             default_suffix = f"{default_suffix} - {payload.theme}"
         if payload.font_family != "mono" or payload.font_size != "balanced":
             default_suffix = f"{default_suffix} - {payload.font_family}-{payload.font_size}"
+    audio_volume = payload.audio_volume if payload.layout_style == "player" else 1.0
     output_name = (payload.nombre_salida or f"{stem} - {default_suffix}").strip()
     if Path(output_name).name != output_name:
         raise HTTPException(400, "El nombre de salida no puede incluir carpetas.")
@@ -73,7 +75,7 @@ def api_generar_video(stem: str, payload: VideoRequest):
             start_time=payload.start_time, end_time=payload.end_time,
             title=payload.titulo or stem, artist=payload.artista,
             vad=vad_value(payload.vad), separate_vocals=payload.separate_vocals,
-            layout_style=payload.layout_style,
+            layout_style=payload.layout_style, audio_volume=audio_volume,
             lyric_style=payload.lyric_style, theme=payload.theme,
             font_family=payload.font_family, font_size=payload.font_size,
             progress_cb=progress_cb,
@@ -82,7 +84,8 @@ def api_generar_video(stem: str, payload: VideoRequest):
 
     job_id = start_job(
         _tarea,
-        key=(f"video:{stem}:{output_name}:{payload.layout_style}:{payload.lyric_style}:{payload.theme}:"
+        key=(f"video:{stem}:{output_name}:{payload.layout_style}:{audio_volume}:"
+             f"{payload.lyric_style}:{payload.theme}:"
              f"{payload.font_family}:{payload.font_size}:{payload.start_time}:{payload.end_time}"),
     )
     return {"job_id": job_id}
