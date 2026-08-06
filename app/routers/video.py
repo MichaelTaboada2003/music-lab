@@ -30,6 +30,7 @@ class VideoRequest(BaseModel):
     artista: Optional[str] = None
     vad: Optional[str] = "auditok"
     separate_vocals: bool = True
+    layout_style: Literal["player", "terminal"] = "player"
     lyric_style: Literal["karaoke", "typing"] = "karaoke"
     theme: Literal["terminal", "midnight", "sunset", "cloud"] = "terminal"
     font_family: Literal["mono", "modern", "editorial"] = "mono"
@@ -43,11 +44,19 @@ def api_generar_video(stem: str, payload: VideoRequest):
     if not lp.is_file():
         raise HTTPException(400, "Esta canción no tiene letra guardada todavía.")
 
-    default_suffix = "escritura" if payload.lyric_style == "typing" else "karaoke"
-    if payload.theme != "terminal":
-        default_suffix = f"{default_suffix} - {payload.theme}"
-    if payload.font_family != "mono" or payload.font_size != "balanced":
-        default_suffix = f"{default_suffix} - {payload.font_family}-{payload.font_size}"
+    default_suffix = (
+        "reproductor"
+        if payload.layout_style == "player"
+        else ("escritura" if payload.lyric_style == "typing" else "karaoke")
+    )
+    # Tema, tipografía y estilo progresivo pertenecen únicamente a Terminal.
+    # El Reproductor replica su identidad visual fija y no debe heredar una
+    # selección oculta de la terminal ni reflejarla en el nombre del archivo.
+    if payload.layout_style == "terminal":
+        if payload.theme != "terminal":
+            default_suffix = f"{default_suffix} - {payload.theme}"
+        if payload.font_family != "mono" or payload.font_size != "balanced":
+            default_suffix = f"{default_suffix} - {payload.font_family}-{payload.font_size}"
     output_name = (payload.nombre_salida or f"{stem} - {default_suffix}").strip()
     if Path(output_name).name != output_name:
         raise HTTPException(400, "El nombre de salida no puede incluir carpetas.")
@@ -64,6 +73,7 @@ def api_generar_video(stem: str, payload: VideoRequest):
             start_time=payload.start_time, end_time=payload.end_time,
             title=payload.titulo or stem, artist=payload.artista,
             vad=vad_value(payload.vad), separate_vocals=payload.separate_vocals,
+            layout_style=payload.layout_style,
             lyric_style=payload.lyric_style, theme=payload.theme,
             font_family=payload.font_family, font_size=payload.font_size,
             progress_cb=progress_cb,
@@ -72,7 +82,7 @@ def api_generar_video(stem: str, payload: VideoRequest):
 
     job_id = start_job(
         _tarea,
-        key=(f"video:{stem}:{output_name}:{payload.lyric_style}:{payload.theme}:"
+        key=(f"video:{stem}:{output_name}:{payload.layout_style}:{payload.lyric_style}:{payload.theme}:"
              f"{payload.font_family}:{payload.font_size}:{payload.start_time}:{payload.end_time}"),
     )
     return {"job_id": job_id}
