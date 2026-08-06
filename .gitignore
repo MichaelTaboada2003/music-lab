@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 /venv
 /.venv
+.DS_Store
 *.sync.json
 /letras
 .env
