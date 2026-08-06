@@ -97,7 +97,7 @@ export function cargarCancion(index) {
     return;
   }
   currentSongTitle.textContent = cancion.title || cancion.stem;
-  currentArtistName.textContent = cancion.artist || "Biblioteca local";
+  currentArtistName.textContent = cancion.artist || "";
   _setArtwork(cancion);
   _syncMiniPlayer(cancion);
   _resetKaraokeMode();
@@ -376,7 +376,7 @@ function _syncMiniPlayer(song) {
   miniPlayer.hidden = !song;
   if (!song) return;
   miniSongTitle.textContent = song.title || song.stem;
-  miniArtistName.textContent = song.artist || "Biblioteca local";
+  miniArtistName.textContent = song.artist || "";
   miniArtworkImage.hidden = true;
   miniArtworkImage.alt = `Carátula de ${song.title || song.stem}`;
   miniArtworkImage.onload = () => { miniArtworkImage.hidden = false; };
@@ -478,7 +478,7 @@ metadataSaveBtn?.addEventListener("click", async () => {
     );
     Object.assign(song, result.metadata);
     currentSongTitle.textContent = song.title;
-    currentArtistName.textContent = song.artist || "Biblioteca local";
+    currentArtistName.textContent = song.artist || "";
     metadataStatus.textContent = "Ficha guardada.";
     renderPlaylist();
     const [{ studioSongSelect }, { lyricsSongSelect }] = await Promise.all([
