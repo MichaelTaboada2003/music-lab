@@ -457,12 +457,14 @@ updatePlayerVolume();
 const _fragState = {
   stanzas: null,
   activeStanza: null,
+  activePlayerStanza: null,
   activePlayerLine: null,
 };
 
 function _renderTerminalLyrics(stanzas) {
   _fragState.stanzas = stanzas;
   _fragState.activeStanza = null;
+  _fragState.activePlayerStanza = null;
   _fragState.activePlayerLine = null;
   const playerPreviewLyrics = document.getElementById("playerPreviewLyrics");
   if (playerPreviewLyrics) {
@@ -470,14 +472,19 @@ function _renderTerminalLyrics(stanzas) {
     playerPreviewLyrics.style.transform = "translateY(0px)";
   }
   if (fragPreviewLyrics) fragPreviewLyrics.innerHTML = "";
-  if (selectedVideoLayout() === "player") _buildStanzaDomPlayer(stanzas);
+  if (selectedVideoLayout() === "player") {
+    const firstStanza = stanzas.find((stanza) => stanza.length) || [];
+    _fragState.activePlayerStanza = firstStanza;
+    _buildStanzaDomPlayer(firstStanza);
+  }
 }
 
-function _buildStanzaDomPlayer(stanzas) {
+function _buildStanzaDomPlayer(stanza) {
   const playerPreviewLyrics = document.getElementById("playerPreviewLyrics");
   if (!playerPreviewLyrics) return;
   playerPreviewLyrics.innerHTML = "";
-  stanzas.flat().forEach((line) => {
+  playerPreviewLyrics.style.transform = "translateY(0px)";
+  stanza.forEach((line) => {
     const l = document.createElement("div");
     l.className = "player-line";
     l.dataset.start = line.start;
@@ -515,6 +522,22 @@ function _setPlayerLineFill(line, t, state) {
 function _updatePlayerPreview(t, stanzas) {
   const playerPreviewLyrics = document.getElementById("playerPreviewLyrics");
   if (!playerPreviewLyrics) return;
+
+  let activeStanza = null;
+  for (const stanza of stanzas) {
+    if (!stanza.length) continue;
+    if (Number.parseFloat(stanza[0].start) <= t) activeStanza = stanza;
+    else break;
+  }
+  if (!activeStanza) activeStanza = stanzas.find((stanza) => stanza.length) || null;
+  if (!activeStanza) return;
+
+  if (activeStanza !== _fragState.activePlayerStanza) {
+    _fragState.activePlayerStanza = activeStanza;
+    _fragState.activePlayerLine = null;
+    _buildStanzaDomPlayer(activeStanza);
+  }
+
   const lines = [...playerPreviewLyrics.querySelectorAll(".player-line")];
   if (!lines.length) return;
 

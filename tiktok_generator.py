@@ -54,6 +54,8 @@ class _MoviepyProgressLogger(ProgressBarLogger if ProgressBarLogger else object)
 
 VIDEO_SIZE = (1080, 1920)
 PLAYER_VIDEO_SIZE = (1920, 1080)
+TERMINAL_EXPORT_FPS = 30
+PLAYER_EXPORT_FPS = 60
 
 # TikTok reserva una parte importante del lateral derecho y de la zona inferior
 # para avatar, acciones y caption. La zona exacta cambia por dispositivo y por
@@ -747,6 +749,14 @@ def _flatten_lyric_lines(stanzas):
     return [line for stanza in stanzas for line in stanza if line]
 
 
+def _player_stanza_for_time(stanzas, current_time):
+    """Replica Terminal: cada estrofa vuelve a empezar desde arriba."""
+    active = _active_stanza(stanzas, current_time)
+    if active:
+        return active
+    return next((stanza for stanza in stanzas if stanza), [])
+
+
 def _fit_player_line_font(draw, text, max_width, active=False):
     family = FONT_FAMILIES["modern"]
     sizes = (54, 50, 46, 42, 38) if active else (48, 44, 40, 36, 34)
@@ -788,7 +798,9 @@ def _paste_word_progress(img, x, y, text, font, base, fill, progress):
     img.paste(clipped, (round(x), round(y)), clipped)
 
 
-def _draw_player_active_line(img, line, current_time, center_x, y, max_width):
+def _draw_player_active_line(
+    img, line, current_time, center_x, y, max_width, opacity=1.0
+):
     draw = ImageDraw.Draw(img)
     text = line.get("text") or ""
     font = _fit_player_line_font(draw, text, max_width, active=True)
@@ -800,7 +812,10 @@ def _draw_player_active_line(img, line, current_time, center_x, y, max_width):
     space_w = _text_width(draw, " ", font)
     widths = [_text_width(draw, word.get("text") or "", font) for word in words]
     total_w = sum(widths) + max(0, len(words) - 1) * space_w
-    x = center_x - total_w / 2
+    layer_w = max_width + 80
+    layer_h = 110
+    layer = Image.new("RGBA", (layer_w, layer_h), (0, 0, 0, 0))
+    x = (layer_w - total_w) / 2
     for word, word_w in zip(words, widths):
         start = float(word.get("start", line.get("start", 0)) or 0)
         end = float(word.get("end", line.get("end", start)) or start)
@@ -811,20 +826,68 @@ def _draw_player_active_line(img, line, current_time, center_x, y, max_width):
         else:
             progress = (current_time - start) / max(0.001, end - start)
         _paste_word_progress(
-            img,
+            layer,
             x,
-            y,
+            16,
             word.get("text") or "",
             font,
-            base=(177, 179, 187),
-            fill=(30, 215, 96),
+            base=(177, 179, 187, 255),
+            fill=(30, 215, 96, 255),
             progress=progress,
         )
         x += word_w + space_w
+    opacity = max(0.0, min(1.0, float(opacity)))
+    if opacity < 1.0:
+        alpha = layer.getchannel("A").point(lambda value: round(value * opacity))
+        layer.putalpha(alpha)
+    img.paste(
+        layer,
+        (round(center_x - layer_w / 2), round(y - 16)),
+        layer,
+    )
+
+
+def _player_transition_ease(progress):
+    """Evalúa cubic-bezier(0.22, 0.61, 0.36, 1), igual que el preview."""
+    progress = max(0.0, min(1.0, float(progress)))
+    if progress in (0.0, 1.0):
+        return progress
+
+    x1, y1, x2, y2 = 0.22, 0.61, 0.36, 1.0
+
+    def curve(t, a1, a2):
+        inv = 1.0 - t
+        return 3 * inv * inv * t * a1 + 3 * inv * t * t * a2 + t ** 3
+
+    def slope(t, a1, a2):
+        inv = 1.0 - t
+        return (
+            3 * inv * inv * a1
+            + 6 * inv * t * (a2 - a1)
+            + 3 * t * t * (1.0 - a2)
+        )
+
+    t = progress
+    for _ in range(6):
+        error = curve(t, x1, x2) - progress
+        derivative = slope(t, x1, x2)
+        if abs(error) < 1e-5 or abs(derivative) < 1e-6:
+            break
+        t = max(0.0, min(1.0, t - error / derivative))
+    return curve(t, y1, y2)
+
+
+def _player_scroll_offset(active_index, transition_progress, top=125,
+                          anchor=620, line_gap=118):
+    """Interpola el desplazamiento entre dos líneas durante 420 ms."""
+    target = max(0, top + active_index * line_gap - anchor)
+    previous = max(0, top + max(0, active_index - 1) * line_gap - anchor)
+    eased = _player_transition_ease(transition_progress)
+    return previous + (target - previous) * eased
 
 
 def _player_scroll_rows(line_count, active_index, top=125, anchor=620,
-                        bottom=990, line_gap=118):
+                        bottom=990, line_gap=118, scroll_offset=None):
     """Calcula un scroll progresivo que empieza arriba y continúa hacia abajo.
 
     Las primeras líneas conservan su posición natural, por lo que el relleno
@@ -832,13 +895,17 @@ def _player_scroll_rows(line_count, active_index, top=125, anchor=620,
     arriba. Al alcanzar el 60% del panel, el contenido sigue desplazándose y
     mantiene contexto de líneas pasadas y futuras alrededor de la activa.
     """
-    active_y = min(top + active_index * line_gap, anchor)
-    visible_past = max(0, math.floor((active_y - top) / line_gap))
-    first_index = max(0, active_index - visible_past)
-    visible_future = max(0, math.ceil((bottom - active_y) / line_gap))
-    last_index = min(line_count, active_index + visible_future + 1)
+    if scroll_offset is None:
+        scroll_offset = max(0, top + active_index * line_gap - anchor)
+    # Conserva la línea que está saliendo hasta que cruza realmente el borde;
+    # usar ceil la eliminaba en el primer frame y volvía a introducir un salto.
+    first_index = max(0, math.floor(scroll_offset / line_gap))
+    last_index = min(
+        line_count,
+        math.floor((bottom + scroll_offset - top) / line_gap) + 1,
+    )
     return [
-        (index, active_y + (index - active_index) * line_gap)
+        (index, top + index * line_gap - scroll_offset)
         for index in range(first_index, last_index)
     ]
 
@@ -870,9 +937,10 @@ def _draw_player_frame_content(img, stanzas, current_time, audio_duration=None):
     duration_w = _text_width(draw, duration_label, fonts["time"])
     draw.text((p_right - 38 - duration_w, label_y), duration_label, font=fonts["time"], fill=(139, 141, 151))
 
-    # Lectura descendente progresiva: comienza arriba, avanza por el panel y
-    # después hace scroll conservando líneas anteriores como contexto.
-    lines = _flatten_lyric_lines(stanzas)
+    # Igual que Terminal, cada estrofa comienza arriba y sus líneas se van
+    # activando hacia abajo. Solo las estrofas excepcionalmente largas hacen
+    # scroll después de alcanzar el ancla del panel.
+    lines = _player_stanza_for_time(stanzas, current_time)
     if not lines:
         return
     active_index = 0
@@ -884,11 +952,62 @@ def _draw_player_frame_content(img, stanzas, current_time, audio_duration=None):
 
     center_x = (760 + 1880) / 2
     max_width = 1000
-    for index, y in _player_scroll_rows(len(lines), active_index):
+    transition_seconds = 0.42
+    active_start = float(lines[active_index].get("start", 0) or 0)
+    transition_raw = (
+        1.0
+        if active_index == 0
+        else max(0.0, min(1.0, (current_time - active_start) / transition_seconds))
+    )
+    transition_progress = _player_transition_ease(transition_raw)
+    scroll_offset = _player_scroll_offset(
+        active_index,
+        transition_raw,
+    )
+    for index, y in _player_scroll_rows(
+        len(lines), active_index, scroll_offset=scroll_offset
+    ):
         line = lines[index]
         delta = index - active_index
         if delta == 0:
-            _draw_player_active_line(img, line, current_time, center_x, y, max_width)
+            if transition_progress < 1.0:
+                _draw_player_dim_line(
+                    img,
+                    line.get("text") or "",
+                    center_x,
+                    y,
+                    max_width,
+                    (164, 166, 176, round(112 * (1.0 - transition_progress))),
+                    blur_radius=2.4,
+                )
+            _draw_player_active_line(
+                img,
+                line,
+                current_time,
+                center_x,
+                y,
+                max_width,
+                opacity=0.2 + 0.8 * transition_progress,
+            )
+        elif delta == -1 and transition_progress < 1.0:
+            _draw_player_dim_line(
+                img,
+                line.get("text") or "",
+                center_x,
+                y,
+                max_width,
+                (164, 166, 176, 68),
+                blur_radius=2.95,
+            )
+            _draw_player_active_line(
+                img,
+                line,
+                current_time,
+                center_x,
+                y,
+                max_width,
+                opacity=1.0 - transition_progress,
+            )
         else:
             distance = abs(delta)
             alpha = max(30, (68 if delta < 0 else 112) - distance * 18)
@@ -1099,8 +1218,11 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="auto",
     _pc("Renderizando video", 0)
     logger = _MoviepyProgressLogger(_pc) if progress_cb else "bar"
     print(f"Exportando {output_path}...")
+    export_fps = (
+        PLAYER_EXPORT_FPS if layout_style == "player" else TERMINAL_EXPORT_FPS
+    )
     video_clip.write_videofile(
-        str(output_path), fps=30, codec="libx264", audio_codec="aac",
+        str(output_path), fps=export_fps, codec="libx264", audio_codec="aac",
         ffmpeg_params=["-crf", "18", "-movflags", "+faststart"], logger=logger
     )
     print("¡Video generado exitosamente!")

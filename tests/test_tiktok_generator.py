@@ -130,6 +130,8 @@ class TikTokThemeTests(unittest.TestCase):
         self.assertEqual(first.shape, (1080, 1920, 3))
         self.assertEqual(first.dtype, np.uint8)
         self.assertFalse(np.array_equal(first, second))
+        self.assertEqual(generator.PLAYER_EXPORT_FPS, 60)
+        self.assertEqual(generator.TERMINAL_EXPORT_FPS, 30)
 
     def test_player_lyrics_advance_down_before_scroll_anchor(self):
         first = dict(generator._player_scroll_rows(12, 0))
@@ -142,6 +144,37 @@ class TikTokThemeTests(unittest.TestCase):
         self.assertGreater(fifth[4], second[1])
         self.assertEqual(later[8], 620)
         self.assertTrue(any(index < 8 for index in later))
+
+    def test_player_scroll_interpolates_with_preview_easing(self):
+        start = generator._player_scroll_offset(6, 0.0)
+        middle = generator._player_scroll_offset(6, 0.5)
+        end = generator._player_scroll_offset(6, 1.0)
+
+        self.assertEqual(start, 95)
+        self.assertEqual(end, 213)
+        self.assertGreater(middle, start)
+        self.assertLess(middle, end)
+        self.assertGreater(generator._player_transition_ease(0.5), 0.5)
+        self.assertIn(
+            0,
+            dict(generator._player_scroll_rows(12, 5, scroll_offset=40)),
+        )
+
+    def test_player_resets_to_top_for_each_stanza(self):
+        first = [
+            _line("Primera linea", 0.0),
+            _line("Segunda linea", 3.0),
+            _line("Tercera linea", 6.0),
+        ]
+        second = [
+            _line("Nueva estrofa arriba", 12.0),
+            _line("Luego continua abajo", 15.0),
+        ]
+        stanzas = [first, second]
+
+        self.assertIs(generator._player_stanza_for_time(stanzas, 7.0), first)
+        self.assertIs(generator._player_stanza_for_time(stanzas, 12.1), second)
+        self.assertEqual(dict(generator._player_scroll_rows(len(second), 0))[0], 125)
 
     def test_player_volume_changes_chrome_and_rejects_invalid_values(self):
         fonts = generator._build_fonts("modern", "balanced")
