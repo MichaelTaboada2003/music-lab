@@ -1,6 +1,7 @@
 import unittest
 
 import numpy as np
+from PIL import Image, ImageDraw
 
 import tiktok_generator as generator
 
@@ -133,34 +134,16 @@ class TikTokThemeTests(unittest.TestCase):
         self.assertEqual(generator.PLAYER_EXPORT_FPS, 60)
         self.assertEqual(generator.TERMINAL_EXPORT_FPS, 30)
 
-    def test_player_lyrics_advance_down_before_scroll_anchor(self):
-        first = dict(generator._player_scroll_rows(12, 0))
-        second = dict(generator._player_scroll_rows(12, 1))
-        fifth = dict(generator._player_scroll_rows(12, 4))
-        later = dict(generator._player_scroll_rows(12, 8))
+    def test_player_page_stays_fixed_while_filling_down(self):
+        rows = dict(generator._player_page_rows(8))
 
-        self.assertEqual(first[0], 125)
-        self.assertGreater(second[1], first[0])
-        self.assertGreater(fifth[4], second[1])
-        self.assertEqual(later[8], 620)
-        self.assertTrue(any(index < 8 for index in later))
-
-    def test_player_scroll_interpolates_with_preview_easing(self):
-        start = generator._player_scroll_offset(6, 0.0)
-        middle = generator._player_scroll_offset(6, 0.5)
-        end = generator._player_scroll_offset(6, 1.0)
-
-        self.assertEqual(start, 95)
-        self.assertEqual(end, 213)
-        self.assertGreater(middle, start)
-        self.assertLess(middle, end)
+        self.assertEqual(rows[0], 125)
+        self.assertEqual(rows[1], 243)
+        self.assertEqual(rows[7], 951)
+        self.assertEqual(len(rows), generator.PLAYER_PAGE_LINE_CAPACITY)
         self.assertGreater(generator._player_transition_ease(0.5), 0.5)
-        self.assertIn(
-            0,
-            dict(generator._player_scroll_rows(12, 5, scroll_offset=40)),
-        )
 
-    def test_player_resets_to_top_for_each_stanza(self):
+    def test_player_appends_selected_stanzas_until_page_is_full(self):
         first = [
             _line("Primera linea", 0.0),
             _line("Segunda linea", 3.0),
@@ -169,12 +152,98 @@ class TikTokThemeTests(unittest.TestCase):
         second = [
             _line("Nueva estrofa arriba", 12.0),
             _line("Luego continua abajo", 15.0),
+            _line("Todavia cabe", 18.0),
         ]
-        stanzas = [first, second]
+        third = [
+            _line("Sigue en la misma pagina", 21.0),
+            _line("Octava linea disponible", 24.0),
+            _line("Esta abre una pagina nueva", 27.0),
+        ]
+        stanzas = [first, second, third]
 
-        self.assertIs(generator._player_stanza_for_time(stanzas, 7.0), first)
-        self.assertIs(generator._player_stanza_for_time(stanzas, 12.1), second)
-        self.assertEqual(dict(generator._player_scroll_rows(len(second), 0))[0], 125)
+        page, active, page_index = generator._player_page_for_time(
+            stanzas, 21.1
+        )
+        self.assertEqual(page_index, 0)
+        self.assertEqual(active, 6)
+        self.assertEqual(len(page), 8)
+
+        page, active, page_index = generator._player_page_for_time(
+            stanzas, 27.1
+        )
+        self.assertEqual(page_index, 1)
+        self.assertEqual(active, 0)
+        self.assertEqual(page[0]["text"], "Esta abre una pagina nueva")
+        self.assertEqual(dict(generator._player_page_rows(len(page)))[0], 125)
+
+        selected, active, page_index = generator._player_page_for_time(
+            stanzas, 12.1, fragment_start=12.0, fragment_end=30.0
+        )
+        self.assertEqual(page_index, 0)
+        self.assertEqual(active, 0)
+        self.assertEqual(selected[0]["text"], "Nueva estrofa arriba")
+
+    def test_single_line_flow_uses_only_the_current_line_in_both_layouts(self):
+        first = _line("Primera linea", 0.0)
+        second = _line("Segunda linea", 3.0)
+        third = _line("Tercera linea", 6.0)
+        stanzas = [[first, second], [third]]
+
+        self.assertIs(generator._active_line_for_time(stanzas, 4.0), second)
+        self.assertIs(
+            generator._active_line_for_time(
+                stanzas, 6.1, fragment_start=6.0, fragment_end=9.0
+            ),
+            third,
+        )
+
+        player_fonts = generator._build_fonts("modern", "balanced")
+        player_scene = generator.build_karaoke_scene(
+            player_fonts,
+            video_size=generator.PLAYER_VIDEO_SIZE,
+            layout_style="player",
+        )
+        player_block = generator.make_karaoke_frame(
+            stanzas, 4.0, player_fonts,
+            video_size=generator.PLAYER_VIDEO_SIZE,
+            scene_image=player_scene,
+            layout_style="player",
+        )
+        player_line = generator.make_karaoke_frame(
+            stanzas, 4.0, player_fonts,
+            video_size=generator.PLAYER_VIDEO_SIZE,
+            scene_image=player_scene,
+            layout_style="player",
+            lyric_flow="line",
+        )
+        self.assertFalse(np.array_equal(player_block, player_line))
+
+        terminal_fonts = generator._build_fonts("mono", "balanced")
+        layout_probe = ImageDraw.Draw(Image.new("RGB", generator.VIDEO_SIZE))
+        single_font, single_wrapped, _ = generator._fit_single_line_lyric_layout(
+            layout_probe,
+            [_line("When you gonna stop breaking my heart", 0.0)],
+            terminal_fonts,
+            round(generator.VIDEO_SIZE[0] * generator.SINGLE_LINE_LYRIC_WIDTH_RATIO),
+        )
+        self.assertGreaterEqual(len(single_wrapped), 2)
+        self.assertLessEqual(len(single_wrapped), 3)
+        self.assertEqual(
+            [" ".join(word["text"] for word in row) for row, _ in single_wrapped],
+            ["When you gonna", "stop breaking", "my heart"],
+        )
+        self.assertGreater(
+            single_font.size,
+            terminal_fonts["lyric_by_density"]["normal"].size,
+        )
+        terminal_block = generator.make_karaoke_frame(
+            stanzas, 4.0, terminal_fonts, layout_style="terminal"
+        )
+        terminal_line = generator.make_karaoke_frame(
+            stanzas, 4.0, terminal_fonts,
+            layout_style="terminal", lyric_flow="line"
+        )
+        self.assertFalse(np.array_equal(terminal_block, terminal_line))
 
     def test_player_volume_changes_chrome_and_rejects_invalid_values(self):
         fonts = generator._build_fonts("modern", "balanced")
@@ -214,6 +283,15 @@ class TikTokThemeTests(unittest.TestCase):
 
         self.assertFalse(np.array_equal(states[0], states[1]))
         self.assertFalse(np.array_equal(states[1], states[2]))
+
+    def test_invalid_lyric_flow_is_rejected_before_audio_resolution(self):
+        with self.assertRaisesRegex(ValueError, "distribución"):
+            generator.create_tiktok_video(
+                "missing.mp3",
+                "missing.txt",
+                "missing.mp4",
+                lyric_flow="invalid",
+            )
 
 
 if __name__ == "__main__":

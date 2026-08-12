@@ -318,6 +318,23 @@
             </div>
           </fieldset>
 
+          <fieldset class="lyric-style-picker lyric-flow-picker">
+            <legend>Distribución de la letra</legend>
+            <p class="picker-hint">Se aplica por igual a Reproductor y Terminal, tanto en la previsualización como en el video.</p>
+            <div class="lyric-style-options">
+              <label class="lyric-style-option">
+                <input type="radio" name="videoLyricFlow" value="block" checked />
+                <span class="lyric-style-name">Bloques adaptativos</span>
+                <span class="lyric-style-description">Mantiene el flujo actual: páginas llenas en Reproductor y estrofas en Terminal.</span>
+              </label>
+              <label class="lyric-style-option">
+                <input type="radio" name="videoLyricFlow" value="line" />
+                <span class="lyric-style-name">Una línea por pantalla</span>
+                <span class="lyric-style-description">Aísla el verso activo, lo centra y le da todo el espacio visual antes de avanzar al siguiente.</span>
+              </label>
+            </div>
+          </fieldset>
+
           <div id="playerOptionsGroup">
             <fieldset class="player-export-settings">
               <legend>Sonido del reproductor</legend>
@@ -427,8 +444,8 @@
             <span>Fragmento a exportar</span>
           </div>
           <p class="hint">
-            Elige una estrofa (por ejemplo el coro) o ajusta los segundos a mano.
-            Necesitas sincronizar arriba para ver las estrofas.
+            Elige una o varias estrofas contiguas —por ejemplo verso y coro— o
+            ajusta los segundos a mano. Necesitas sincronizar arriba para verlas.
           </p>
 
           <div id="stanzaPicker" class="stanza-picker"></div>

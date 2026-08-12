@@ -33,6 +33,7 @@ class VideoRequest(BaseModel):
     layout_style: Literal["player", "terminal"] = "player"
     audio_volume: float = Field(default=1.0, ge=0.0, le=1.0)
     lyric_style: Literal["karaoke", "typing"] = "karaoke"
+    lyric_flow: Literal["block", "line"] = "block"
     theme: Literal["terminal", "midnight", "sunset", "cloud"] = "terminal"
     font_family: Literal["mono", "modern", "editorial"] = "mono"
     font_size: Literal["compact", "balanced", "large"] = "balanced"
@@ -50,6 +51,8 @@ def api_generar_video(stem: str, payload: VideoRequest):
         if payload.layout_style == "player"
         else ("escritura" if payload.lyric_style == "typing" else "karaoke")
     )
+    if payload.lyric_flow == "line":
+        default_suffix = f"{default_suffix} - linea"
     # Tema, tipografía y estilo progresivo pertenecen únicamente a Terminal.
     # El Reproductor replica su identidad visual fija y no debe heredar una
     # selección oculta de la terminal ni reflejarla en el nombre del archivo.
@@ -76,7 +79,8 @@ def api_generar_video(stem: str, payload: VideoRequest):
             title=payload.titulo or stem, artist=payload.artista,
             vad=vad_value(payload.vad), separate_vocals=payload.separate_vocals,
             layout_style=payload.layout_style, audio_volume=audio_volume,
-            lyric_style=payload.lyric_style, theme=payload.theme,
+            lyric_style=payload.lyric_style, lyric_flow=payload.lyric_flow,
+            theme=payload.theme,
             font_family=payload.font_family, font_size=payload.font_size,
             progress_cb=progress_cb,
         )
@@ -85,7 +89,7 @@ def api_generar_video(stem: str, payload: VideoRequest):
     job_id = start_job(
         _tarea,
         key=(f"video:{stem}:{output_name}:{payload.layout_style}:{audio_volume}:"
-             f"{payload.lyric_style}:{payload.theme}:"
+             f"{payload.lyric_style}:{payload.lyric_flow}:{payload.theme}:"
              f"{payload.font_family}:{payload.font_size}:{payload.start_time}:{payload.end_time}"),
     )
     return {"job_id": job_id}

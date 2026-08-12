@@ -56,6 +56,9 @@ VIDEO_SIZE = (1080, 1920)
 PLAYER_VIDEO_SIZE = (1920, 1080)
 TERMINAL_EXPORT_FPS = 30
 PLAYER_EXPORT_FPS = 60
+PLAYER_PAGE_LINE_CAPACITY = 8
+PLAYER_SINGLE_LINE_Y = 500
+PLAYER_SINGLE_LINE_WIDTH = 840
 
 # TikTok reserva una parte importante del lateral derecho y de la zona inferior
 # para avatar, acciones y caption. La zona exacta cambia por dispositivo y por
@@ -227,6 +230,11 @@ HEADER_WIDTH_RATIO = 0.80
 LYRIC_WIDTH_RATIO = 0.69
 LYRIC_CENTER_Y_RATIO = 0.60
 LYRIC_LEADING = {"normal": 1.55, "dense": 1.52, "very-dense": 1.48}
+# El modo de foco muestra el verso activo más sus dos vecinos. Reservar 75%
+# del ancho mantiene aire lateral y permite que las tres filas respiren.
+SINGLE_LINE_LYRIC_WIDTH_RATIO = 0.75
+SINGLE_LINE_LYRIC_SCALE = 1.42
+SINGLE_LINE_LYRIC_LEADING = 1.42
 
 _FONT_CACHE = {}
 
@@ -745,26 +753,178 @@ def _fit_lyric_layout(draw, stanza, fonts, max_width, max_lines=5):
     return selected
 
 
+def _wrap_line_to_rows(draw, line, font, max_width, max_rows=3):
+    """Parte un renglón fuente en filas equilibradas sin separar palabras."""
+    words = line.get("words") or [{
+        "text": line.get("text") or "",
+        "start": line.get("start", 0),
+        "end": line.get("end", 0),
+    }]
+    words = [word for word in words if word.get("text")]
+    if not words:
+        return [], 0
+
+    space_w = _text_width(draw, " ", font)
+    word_widths = [_text_width(draw, word["text"], font) for word in words]
+    prefix = [0]
+    for word_width in word_widths:
+        prefix.append(prefix[-1] + word_width)
+
+    def segment_width(start, end):
+        count = end - start
+        return prefix[end] - prefix[start] + max(0, count - 1) * space_w
+
+    count = len(words)
+    for row_count in range(1, min(max_rows, count) + 1):
+        cache = {}
+
+        def partition(start, remaining_rows):
+            key = (start, remaining_rows)
+            if key in cache:
+                return cache[key]
+            remaining_words = count - start
+            if remaining_rows == 1:
+                width = segment_width(start, count)
+                result = ([words[start:count]], [width]) if width <= max_width else None
+                cache[key] = result
+                return result
+            best = None
+            last_end = count - remaining_rows + 1
+            for end in range(start + 1, last_end + 1):
+                width = segment_width(start, end)
+                if width > max_width:
+                    break
+                tail = partition(end, remaining_rows - 1)
+                if tail is None:
+                    continue
+                rows, widths = tail
+                candidate_rows = [words[start:end], *rows]
+                candidate_widths = [width, *widths]
+                # Menor varianza de ancho: compone bloques más equilibrados.
+                score = sum((max_width - row_width) ** 2 for row_width in candidate_widths)
+                if best is None or score < best[0]:
+                    best = (score, candidate_rows, candidate_widths)
+            result = None if best is None else (best[1], best[2])
+            cache[key] = result
+            return result
+
+        result = partition(0, row_count)
+        if result is not None:
+            rows, widths = result
+            return list(zip(rows, widths)), space_w
+
+    # Caso excepcional: una palabra por sí sola supera el ancho disponible.
+    return _wrap_stanza(draw, [line], font, max_width)
+
+
+def _fit_single_line_lyric_layout(draw, stanza, fonts, max_width, max_rows=3):
+    """Maximiza un verso aislado, permitiendo hasta tres filas visuales."""
+    density = _stanza_density(stanza)
+    largest_size = round(
+        fonts["lyric_by_density"][density].size * SINGLE_LINE_LYRIC_SCALE
+    )
+    # El tamaño baja solo cuando el verso necesitaría más de tres filas. Así
+    # una línea fuente larga ocupa verticalmente el escenario sin desbordarse.
+    smallest_size = max(32, round(largest_size * 0.55))
+    family = fonts["family"]
+    last_layout = None
+    for size in range(largest_size, smallest_size - 1, -2):
+        font = _load_font(family["bold"], size)
+        wrapped_lines, space_w = _wrap_line_to_rows(
+            draw, stanza[0], font, max_width, max_rows=max_rows
+        )
+        last_layout = (font, wrapped_lines, space_w)
+        if len(wrapped_lines) <= max_rows:
+            return last_layout
+    return last_layout
+
+
 def _flatten_lyric_lines(stanzas):
     return [line for stanza in stanzas for line in stanza if line]
 
 
-def _player_stanza_for_time(stanzas, current_time):
-    """Replica Terminal: cada estrofa vuelve a empezar desde arriba."""
-    active = _active_stanza(stanzas, current_time)
-    if active:
-        return active
-    return next((stanza for stanza in stanzas if stanza), [])
+def _lines_for_fragment(stanzas, fragment_start=None, fragment_end=None):
+    """Conserva las líneas que se solapan con el intervalo exportado."""
+    lines = _flatten_lyric_lines(stanzas)
+    return [
+        line
+        for line in lines
+        if not (
+            fragment_start is not None
+            and float(line.get("end", 0) or 0) <= fragment_start
+        )
+        and not (
+            fragment_end is not None
+            and float(line.get("start", 0) or 0) >= fragment_end
+        )
+    ]
 
 
-def _fit_player_line_font(draw, text, max_width, active=False):
+def _player_page_for_time(stanzas, current_time, fragment_start=None,
+                          fragment_end=None, page_size=PLAYER_PAGE_LINE_CAPACITY):
+    """Llena una página hacia abajo y crea otra solo al agotar el espacio."""
+    lines = _lines_for_fragment(stanzas, fragment_start, fragment_end)
+    if not lines:
+        return [], 0, 0
+    active_index = 0
+    for index, line in enumerate(lines):
+        if float(line.get("start", 0) or 0) <= current_time:
+            active_index = index
+        else:
+            break
+    page_index = active_index // page_size
+    page_start = page_index * page_size
+    return (
+        lines[page_start:page_start + page_size],
+        active_index - page_start,
+        page_index,
+    )
+
+
+def _active_line_for_time(stanzas, current_time, fragment_start=None,
+                          fragment_end=None):
+    """Obtiene el renglón activo para el modo de una línea por pantalla."""
+    lines = _lines_for_fragment(stanzas, fragment_start, fragment_end)
+    if not lines:
+        return None
+    active = lines[0]
+    for line in lines:
+        if float(line.get("start", 0) or 0) <= current_time:
+            active = line
+        else:
+            break
+    return active
+
+
+def _fit_player_line_font(draw, text, max_width, active=False, single_line=False):
     family = FONT_FAMILIES["modern"]
-    sizes = (54, 50, 46, 42, 38) if active else (48, 44, 40, 36, 34)
+    if single_line and active:
+        # El verso aislado es el foco completo del panel. La escalera mantiene
+        # legibilidad para frases largas sin desperdiciar espacio en frases cortas.
+        sizes = (104, 98, 92, 86, 80, 74, 68, 62)
+    else:
+        sizes = (54, 50, 46, 42, 38) if active else (48, 44, 40, 36, 34)
     for size in sizes:
         font = _load_font(family["bold"], size)
         if _text_width(draw, text, font) <= max_width:
             return font
     return _load_font(family["bold"], sizes[-1])
+
+
+def _fit_player_single_line_layout(draw, line, max_width, max_rows=3):
+    """Compone un verso del Player en hasta tres filas grandes y centradas."""
+    family = FONT_FAMILIES["modern"]
+    sizes = (120, 114, 108, 102, 96, 90, 84, 78, 72, 66, 60)
+    last_layout = None
+    for size in sizes:
+        font = _load_font(family["bold"], size)
+        wrapped_lines, space_w = _wrap_line_to_rows(
+            draw, line, font, max_width, max_rows=max_rows
+        )
+        last_layout = (font, wrapped_lines, space_w)
+        if len(wrapped_lines) <= max_rows:
+            return last_layout
+    return last_layout
 
 
 def _draw_player_dim_line(img, text, center_x, y, max_width, color, blur_radius):
@@ -799,52 +959,64 @@ def _paste_word_progress(img, x, y, text, font, base, fill, progress):
 
 
 def _draw_player_active_line(
-    img, line, current_time, center_x, y, max_width, opacity=1.0
+    img, line, current_time, center_x, y, max_width, opacity=1.0,
+    single_line=False,
 ):
     draw = ImageDraw.Draw(img)
     text = line.get("text") or ""
-    font = _fit_player_line_font(draw, text, max_width, active=True)
-    words = line.get("words") or [{
-        "text": text,
-        "start": line.get("start", 0),
-        "end": line.get("end", 0),
-    }]
-    space_w = _text_width(draw, " ", font)
-    widths = [_text_width(draw, word.get("text") or "", font) for word in words]
-    total_w = sum(widths) + max(0, len(words) - 1) * space_w
-    layer_w = max_width + 80
-    layer_h = 110
-    layer = Image.new("RGBA", (layer_w, layer_h), (0, 0, 0, 0))
-    x = (layer_w - total_w) / 2
-    for word, word_w in zip(words, widths):
-        start = float(word.get("start", line.get("start", 0)) or 0)
-        end = float(word.get("end", line.get("end", start)) or start)
-        if current_time >= end:
-            progress = 1
-        elif current_time <= start:
-            progress = 0
-        else:
-            progress = (current_time - start) / max(0.001, end - start)
-        _paste_word_progress(
-            layer,
-            x,
-            16,
-            word.get("text") or "",
-            font,
-            base=(177, 179, 187, 255),
-            fill=(30, 215, 96, 255),
-            progress=progress,
+    if single_line:
+        font, wrapped_lines, space_w = _fit_player_single_line_layout(
+            draw, line, max_width
         )
-        x += word_w + space_w
+    else:
+        font = _fit_player_line_font(draw, text, max_width, active=True)
+        words = line.get("words") or [{
+            "text": text,
+            "start": line.get("start", 0),
+            "end": line.get("end", 0),
+        }]
+        space_w = _text_width(draw, " ", font)
+        widths = [_text_width(draw, word.get("text") or "", font) for word in words]
+        wrapped_lines = [(
+            words,
+            sum(widths) + max(0, len(words) - 1) * space_w,
+        )]
+    layer_w = max_width + 80
+    line_height = round(font.size * 1.30)
+    block_height = len(wrapped_lines) * line_height
+    layer_h = max(110, block_height + 32)
+    layer = Image.new("RGBA", (layer_w, layer_h), (0, 0, 0, 0))
+    top = (layer_h - block_height) / 2 if single_line else 16
+    for row_index, (row_words, row_width) in enumerate(wrapped_lines):
+        x = (layer_w - row_width) / 2
+        row_y = top + row_index * line_height
+        for word in row_words:
+            word_w = _text_width(draw, word.get("text") or "", font)
+            start = float(word.get("start", line.get("start", 0)) or 0)
+            end = float(word.get("end", line.get("end", start)) or start)
+            if current_time >= end:
+                progress = 1
+            elif current_time <= start:
+                progress = 0
+            else:
+                progress = (current_time - start) / max(0.001, end - start)
+            _paste_word_progress(
+                layer,
+                x,
+                row_y,
+                word.get("text") or "",
+                font,
+                base=(177, 179, 187, 255),
+                fill=(30, 215, 96, 255),
+                progress=progress,
+            )
+            x += word_w + space_w
     opacity = max(0.0, min(1.0, float(opacity)))
     if opacity < 1.0:
         alpha = layer.getchannel("A").point(lambda value: round(value * opacity))
         layer.putalpha(alpha)
-    img.paste(
-        layer,
-        (round(center_x - layer_w / 2), round(y - 16)),
-        layer,
-    )
+    paste_y = y - layer_h / 2 if single_line else y - 16
+    img.paste(layer, (round(center_x - layer_w / 2), round(paste_y)), layer)
 
 
 def _player_transition_ease(progress):
@@ -877,41 +1049,25 @@ def _player_transition_ease(progress):
     return curve(t, y1, y2)
 
 
-def _player_scroll_offset(active_index, transition_progress, top=125,
-                          anchor=620, line_gap=118):
-    """Interpola el desplazamiento entre dos líneas durante 420 ms."""
-    target = max(0, top + active_index * line_gap - anchor)
-    previous = max(0, top + max(0, active_index - 1) * line_gap - anchor)
-    eased = _player_transition_ease(transition_progress)
-    return previous + (target - previous) * eased
-
-
-def _player_scroll_rows(line_count, active_index, top=125, anchor=620,
-                        bottom=990, line_gap=118, scroll_offset=None):
-    """Calcula un scroll progresivo que empieza arriba y continúa hacia abajo.
-
-    Las primeras líneas conservan su posición natural, por lo que el relleno
-    avanza visualmente por el panel en vez de reemplazar siempre la línea de
-    arriba. Al alcanzar el 60% del panel, el contenido sigue desplazándose y
-    mantiene contexto de líneas pasadas y futuras alrededor de la activa.
-    """
-    if scroll_offset is None:
-        scroll_offset = max(0, top + active_index * line_gap - anchor)
-    # Conserva la línea que está saliendo hasta que cruza realmente el borde;
-    # usar ceil la eliminaba en el primer frame y volvía a introducir un salto.
-    first_index = max(0, math.floor(scroll_offset / line_gap))
-    last_index = min(
-        line_count,
-        math.floor((bottom + scroll_offset - top) / line_gap) + 1,
-    )
+def _player_page_rows(line_count, top=125, bottom=990, line_gap=118):
+    """Posiciona una página fija que se rellena completamente hacia abajo."""
+    last_index = min(line_count, math.floor((bottom - top) / line_gap) + 1)
     return [
-        (index, top + index * line_gap - scroll_offset)
-        for index in range(first_index, last_index)
+        (index, top + index * line_gap)
+        for index in range(last_index)
     ]
 
 
-def _draw_player_frame_content(img, stanzas, current_time, audio_duration=None):
-    """Contenido dinámico del layout horizontal: progreso y letra en scroll."""
+def _draw_player_frame_content(
+    img,
+    stanzas,
+    current_time,
+    audio_duration=None,
+    fragment_start=None,
+    fragment_end=None,
+    lyric_flow="block",
+):
+    """Contenido dinámico: progreso y letra paginada de arriba hacia abajo."""
     draw = ImageDraw.Draw(img)
     fonts = _player_fonts()
 
@@ -937,20 +1093,38 @@ def _draw_player_frame_content(img, stanzas, current_time, audio_duration=None):
     duration_w = _text_width(draw, duration_label, fonts["time"])
     draw.text((p_right - 38 - duration_w, label_y), duration_label, font=fonts["time"], fill=(139, 141, 151))
 
-    # Igual que Terminal, cada estrofa comienza arriba y sus líneas se van
-    # activando hacia abajo. Solo las estrofas excepcionalmente largas hacen
-    # scroll después de alcanzar el ancla del panel.
-    lines = _player_stanza_for_time(stanzas, current_time)
+    center_x = (760 + 1880) / 2
+    if lyric_flow == "line":
+        line = _active_line_for_time(
+            stanzas,
+            current_time,
+            fragment_start=fragment_start,
+            fragment_end=fragment_end,
+        )
+        if not line:
+            return
+        _draw_player_active_line(
+            img,
+            line,
+            current_time,
+            center_x,
+            PLAYER_SINGLE_LINE_Y,
+            max_width=PLAYER_SINGLE_LINE_WIDTH,
+            single_line=True,
+        )
+        return
+
+    # Las estrofas escogidas se adjuntan en una misma página hasta completar
+    # las ocho filas disponibles. Solo entonces se limpia y comienza arriba.
+    lines, active_index, _ = _player_page_for_time(
+        stanzas,
+        current_time,
+        fragment_start=fragment_start,
+        fragment_end=fragment_end,
+    )
     if not lines:
         return
-    active_index = 0
-    for index, line in enumerate(lines):
-        if float(line.get("start", 0) or 0) <= current_time:
-            active_index = index
-        else:
-            break
 
-    center_x = (760 + 1880) / 2
     max_width = 1000
     transition_seconds = 0.42
     active_start = float(lines[active_index].get("start", 0) or 0)
@@ -960,13 +1134,7 @@ def _draw_player_frame_content(img, stanzas, current_time, audio_duration=None):
         else max(0.0, min(1.0, (current_time - active_start) / transition_seconds))
     )
     transition_progress = _player_transition_ease(transition_raw)
-    scroll_offset = _player_scroll_offset(
-        active_index,
-        transition_raw,
-    )
-    for index, y in _player_scroll_rows(
-        len(lines), active_index, scroll_offset=scroll_offset
-    ):
+    for index, y in _player_page_rows(len(lines)):
         line = lines[index]
         delta = index - active_index
         if delta == 0:
@@ -1026,7 +1194,9 @@ def _draw_player_frame_content(img, stanzas, current_time, audio_duration=None):
 def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
                        video_size=VIDEO_SIZE, scene_image=None,
                        layout_style="player", lyric_style="karaoke", theme_name="terminal",
-                       cover_path=None, audio_duration=None, audio_volume=1.0):
+                       cover_path=None, audio_duration=None, audio_volume=1.0,
+                       fragment_start=None, fragment_end=None,
+                       lyric_flow="block"):
     width, height = video_size
     img = scene_image.copy() if scene_image is not None else build_karaoke_scene(
         fonts, title=title, artist=artist, video_size=video_size,
@@ -1038,22 +1208,47 @@ def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
 
     if layout_style == "player":
         _draw_player_frame_content(
-            img, stanzas, current_time, audio_duration=audio_duration
+            img,
+            stanzas,
+            current_time,
+            audio_duration=audio_duration,
+            fragment_start=fragment_start,
+            fragment_end=fragment_end,
+            lyric_flow=lyric_flow,
         )
         return np.array(img)
 
-    stanza = _active_stanza(stanzas, current_time)
+    if lyric_flow == "line":
+        active_line = _active_line_for_time(
+            stanzas,
+            current_time,
+            fragment_start=fragment_start,
+            fragment_end=fragment_end,
+        )
+        stanza = [active_line] if active_line else None
+    else:
+        stanza = _active_stanza(stanzas, current_time)
     if not stanza:
         return np.array(img)
 
     density = _stanza_density(stanza)
-    max_w = round(width * LYRIC_WIDTH_RATIO)
+    is_single_line = lyric_flow == "line"
+    max_w = round(width * (
+        SINGLE_LINE_LYRIC_WIDTH_RATIO if is_single_line else LYRIC_WIDTH_RATIO
+    ))
     lyric_left = (width - max_w) / 2
-    font_lyric, wrapped_lines, space_w = _fit_lyric_layout(
-        draw, stanza, fonts, max_width=max_w,
-    )
+    if is_single_line:
+        font_lyric, wrapped_lines, space_w = _fit_single_line_lyric_layout(
+            draw, stanza, fonts, max_width=max_w,
+        )
+    else:
+        font_lyric, wrapped_lines, space_w = _fit_lyric_layout(
+            draw, stanza, fonts, max_width=max_w,
+        )
     lyric_size = font_lyric.size
-    line_height = int(lyric_size * LYRIC_LEADING[density])
+    line_height = int(lyric_size * (
+        SINGLE_LINE_LYRIC_LEADING if is_single_line else LYRIC_LEADING[density]
+    ))
     n_lines = len(wrapped_lines)
     block_height = n_lines * line_height
 
@@ -1104,7 +1299,6 @@ def _build_fonts(font_family="mono", font_size="balanced"):
         density: _load_font(family["bold"], size)
         for density, size in preset["lyric"].items()
     }
-
     return {
         # El chrome tiene tamaño fijo en CSS; solo cambia de familia.
         "bar": _load_font(family["normal"], 34),
@@ -1114,6 +1308,7 @@ def _build_fonts(font_family="mono", font_size="balanced"):
         "lyric": lyric_by_density["normal"],
         "lyric_steps": list(lyric_by_density.values()),
         "lyric_by_density": lyric_by_density,
+        "family": family,
     }
 
 
@@ -1124,6 +1319,7 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="auto",
                          layout_style="player",
                          audio_volume=1.0,
                          lyric_style="karaoke",
+                         lyric_flow="block",
                          theme="terminal",
                          font_family="mono", font_size="balanced",
                          progress_cb=None):
@@ -1133,6 +1329,8 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="auto",
         raise ValueError("El volumen del audio debe estar entre 0.0 y 1.0.")
     if lyric_style not in {"karaoke", "typing"}:
         raise ValueError("El formato de letra debe ser 'karaoke' o 'typing'.")
+    if lyric_flow not in {"block", "line"}:
+        raise ValueError("La distribución de letra debe ser 'block' o 'line'.")
     _theme_for(theme)
     _font_family_for(font_family)
     _font_size_for(font_size)
@@ -1207,6 +1405,8 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="auto",
             layout_style=layout_style,
             lyric_style=lyric_style, theme_name=theme, cover_path=cover_path,
             audio_duration=full_duration, audio_volume=audio_volume,
+            fragment_start=frag_start, fragment_end=frag_end,
+            lyric_flow=lyric_flow,
         )
 
     video_clip = VideoClip(make_frame, duration=duration)
@@ -1243,6 +1443,7 @@ if __name__ == "__main__":
     parser.add_argument("--layout-style", choices=("player", "terminal"), default="player")
     parser.add_argument("--audio-volume", type=float, default=1.0, help="Volumen del audio exportado entre 0.0 y 1.0")
     parser.add_argument("--lyric-style", choices=("karaoke", "typing"), default="karaoke")
+    parser.add_argument("--lyric-flow", choices=("block", "line"), default="block")
     parser.add_argument("--theme", choices=tuple(VIDEO_THEMES), default="terminal", help="Tema visual del video")
     parser.add_argument("--font-family", choices=tuple(FONT_FAMILIES), default="mono", help="Familia tipográfica de la letra")
     parser.add_argument("--font-size", choices=tuple(FONT_SIZES), default="balanced", help="Escala de tipografía")
@@ -1257,6 +1458,6 @@ if __name__ == "__main__":
         start_time=args.start, end_time=args.end, title=args.titulo, artist=args.artista,
         vad=vad_arg, separate_vocals=not args.no_separacion,
         layout_style=args.layout_style, audio_volume=args.audio_volume,
-        lyric_style=args.lyric_style,
+        lyric_style=args.lyric_style, lyric_flow=args.lyric_flow,
         theme=args.theme, font_family=args.font_family, font_size=args.font_size,
     )
