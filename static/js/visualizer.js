@@ -1,6 +1,6 @@
 // ============================================================
-// visualizer.js — Motor Visual Inmersivo HD Reactivo al Audio (Web Audio API)
-// 6 Escenas Procedurales 3D • Malla Fluida • Espectro Armónico • Turbulencia Vectorial
+// visualizer.js — Motor Visual de Iluminación Acústica Inmersiva (Web Audio API)
+// 100% Reactivo al Audio • Sin Estrellas ni Rayas • Apagado en Pausa • 60 FPS
 // ============================================================
 
 import { audioPlayer } from "./player.js";
@@ -13,43 +13,46 @@ const ambientOverlay = document.querySelector(".bg-overlay");
 const ambientArtwork = document.querySelector(".bg-artwork");
 const artworkLayers = [...document.querySelectorAll(".bg-artwork-layer")];
 const nowPlaying = document.querySelector(".now-playing");
+
+// Detección de hardware y accesibilidad
 const reduceMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 const deviceMemory = Number(navigator.deviceMemory) || 8;
 const cpuCores = Number(navigator.hardwareConcurrency) || 8;
 const LOW_POWER_MODE = reduceMotionQuery.matches || deviceMemory <= 4 || cpuCores <= 4;
 
-const NORMAL_FPS = reduceMotionQuery.matches ? 24 : LOW_POWER_MODE ? 30 : 60;
-const DEGRADED_FPS = reduceMotionQuery.matches ? 18 : 30;
-const CSS_UPDATE_INTERVAL = LOW_POWER_MODE ? 80 : 40;
-const AMBIENT_FADE_DURATION = 560;
-const BASE_PIXEL_BUDGET = LOW_POWER_MODE ? 800_000 : 1_600_000;
-const MOBILE_PIXEL_BUDGET = LOW_POWER_MODE ? 450_000 : 900_000;
+const NORMAL_FPS = reduceMotionQuery.matches ? 30 : LOW_POWER_MODE ? 45 : 60;
+const DEGRADED_FPS = 30;
+const CSS_UPDATE_INTERVAL = LOW_POWER_MODE ? 60 : 33;
+const BASE_PIXEL_BUDGET = LOW_POWER_MODE ? 800_000 : 1_800_000;
+const MOBILE_PIXEL_BUDGET = LOW_POWER_MODE ? 450_000 : 950_000;
 
-// 6 Escenas procedurales hiper-dinámicas únicas asignadas por semilla de la canción
-const SCENES = [
-  { id: "aurora", name: "Quantum Fluid Aurora", focusX: 0.35, focusY: 0.40, rotation: -0.22, drift: 1.2, turbulence: 1.4, rayDensity: 0.8 },
-  { id: "supernova", name: "Cosmic Supernova", focusX: 0.50, focusY: 0.45, rotation: 0.05, drift: 0.9, turbulence: 1.8, rayDensity: 1.4 },
-  { id: "cybergrid", name: "Cyber Waveform Grid", focusX: 0.50, focusY: 0.65, rotation: 0.00, drift: 1.5, turbulence: 1.0, rayDensity: 0.6 },
-  { id: "vortex", name: "Bioluminescent Vortex", focusX: 0.60, focusY: 0.40, rotation: 0.45, drift: 1.1, turbulence: 2.2, rayDensity: 1.2 },
-  { id: "hyperdrive", name: "Hyperdrive Light Rays", focusX: 0.50, focusY: 0.35, rotation: -0.15, drift: 1.4, turbulence: 1.6, rayDensity: 2.0 },
-  { id: "galaxy", name: "Starlight Galaxy Field", focusX: 0.42, focusY: 0.55, rotation: 0.25, drift: 0.8, turbulence: 2.5, rayDensity: 1.0 },
+// ------------------------------------------------------------
+// MODOS DE ILUMINACIÓN ESCÉNICA (Asignados por Canción)
+// ------------------------------------------------------------
+const STAGE_LIGHT_MODES = [
+  { id: "fluid_aura", name: "Aura Líquida de Escenario", focusX: 0.38, focusY: 0.42, spread: 1.5, drift: 1.0 },
+  { id: "volumetric_beams", name: "Haces de Luz Volumétricos", focusX: 0.50, focusY: 0.38, spread: 2.0, drift: 1.4 },
+  { id: "chromatic_caustics", name: "Cáusticas de Luz Armónica", focusX: 0.44, focusY: 0.52, spread: 1.6, drift: 0.9 },
+  { id: "resonant_chamber", name: "Cámara de Luz Resonante", focusX: 0.55, focusY: 0.40, spread: 1.8, drift: 1.2 },
+  { id: "kinetic_waves", name: "Ondas Cinéticas de Escenario", focusX: 0.48, focusY: 0.46, spread: 1.7, drift: 1.5 },
 ];
 
-let audioCtx;
-let analyser;
-let source;
-let gainNode;
+// Estado del Web Audio API
+let audioCtx = null;
+let analyser = null;
+let source = null;
+let gainNode = null;
 let pendingGain = 1;
-let frequencyData;
-let timeData;
-let previousSpectrum;
-let spectrumBands = new Float32Array(16);
-let targetBands = new Float32Array(16);
+let frequencyData = null;
+let timeData = null;
+let previousSpectrum = null;
+const spectrumBands = new Float32Array(16);
+const targetBands = new Float32Array(16);
 
+// Estado de animación y profiling
 let frameRequest = null;
 let lastRenderAt = 0;
 let lastCssUpdateAt = 0;
-let clearCanvasTimer = null;
 let resizeRequest = null;
 let beatCooldown = 0;
 let activeArtworkIndex = 0;
@@ -58,29 +61,44 @@ let frameInterval = 1000 / NORMAL_FPS;
 let averageRenderCost = 0;
 let quality = 1;
 let qualityCheckAt = 0;
+let isAudioActive = false;
 
-// Pool de partículas con físicas vectoriales avanzadas
-const MAX_PARTICLES = LOW_POWER_MODE ? 24 : 54;
-const particles = [];
+// Estado del puntero para paralaje
+const pointer = {
+  x: 0.5,
+  y: 0.5,
+  targetX: 0.5,
+  targetY: 0.5,
+};
 
-function _initParticles() {
-  particles.length = 0;
-  for (let i = 0; i < MAX_PARTICLES; i++) {
-    particles.push({
-      x: Math.random(),
-      y: Math.random(),
-      z: 0.2 + Math.random() * 0.8,
-      size: 1.2 + Math.random() * 2.8,
-      alpha: 0.15 + Math.random() * 0.45,
-      vx: (Math.random() - 0.5) * 0.08,
-      vy: (Math.random() - 0.5) * 0.08,
-      phase: Math.random() * Math.PI * 2,
-      orbitRadius: 0.1 + Math.random() * 0.35,
-      orbitAngle: Math.random() * Math.PI * 2,
+// ------------------------------------------------------------
+// NODOS DE LUZ ACÚSTICA MULTICAPA (Proyecciones de Espectro)
+// ------------------------------------------------------------
+const NUM_LIGHT_NODES = LOW_POWER_MODE ? 4 : 6;
+const lightNodes = [];
+
+function _initLightNodes() {
+  lightNodes.length = 0;
+  for (let i = 0; i < NUM_LIGHT_NODES; i++) {
+    lightNodes.push({
+      baseX: 0.2 + (i / Math.max(1, NUM_LIGHT_NODES - 1)) * 0.60,
+      baseY: 0.25 + (i % 2) * 0.40,
+      currentX: 0.5,
+      currentY: 0.5,
+      baseRadiusScale: 0.45 + (i % 3) * 0.18,
+      speed: 0.45 + i * 0.18,
+      phaseX: i * 1.5,
+      phaseY: i * 2.2 + 1.0,
+      colorIndex: i % 4, // 0: primary, 1: secondary, 2: tertiary, 3: accent
+      driftAmpX: 0.18 + (i % 2) * 0.08,
+      driftAmpY: 0.14 + (i % 3) * 0.06,
     });
   }
 }
 
+// ------------------------------------------------------------
+// PALETA Y ESTADO VISUAL
+// ------------------------------------------------------------
 const initialPalette = _buildFallbackPalette(DEFAULT_SONG_KEY);
 const visual = {
   bass: 0,
@@ -90,21 +108,20 @@ const visual = {
   rms: 0,
   centroid: 0.5,
   flux: 0,
-  energy: 0.08,
-  beatFloor: 0.08,
+  energy: 0,
+  beatFloor: 0.05,
   pulse: 0,
   seed: _hashString(DEFAULT_SONG_KEY),
   palette: _clonePalette(initialPalette),
   targetPalette: _clonePalette(initialPalette),
-  scene: _sceneFromKey(DEFAULT_SONG_KEY),
-  ripples: [],
-  flowAngle: 0,
-  flowFreq: 1.2,
-  rotation3D: { x: 0, y: 0, z: 0 },
+  mode: STAGE_LIGHT_MODES[0],
 };
 
-_initParticles();
+_initLightNodes();
 
+// ------------------------------------------------------------
+// UTILIDADES MATEMÁTICAS Y DE COLOR
+// ------------------------------------------------------------
 function _clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -157,15 +174,15 @@ function _clonePalette(palette) {
 function _buildFallbackPalette(songKey) {
   const seed = _hashString(songKey);
   const hue = seed % 360;
-  const shiftA = 40 + (seed % 50);
-  const shiftB = 110 + (seed % 80);
+  const shiftA = 45 + (seed % 40);
+  const shiftB = 120 + (seed % 60);
 
   return {
-    primary: _hslToRgb(hue, 88, 62),
-    secondary: _hslToRgb(hue + shiftA, 82, 64),
-    tertiary: _hslToRgb(hue + shiftB, 78, 62),
-    accent: _hslToRgb(hue + 180, 90, 72),
-    shadow: _hslToRgb(hue + 15, 35, 8),
+    primary: _hslToRgb(hue, 90, 60),
+    secondary: _hslToRgb(hue + shiftA, 88, 62),
+    tertiary: _hslToRgb(hue + shiftB, 82, 58),
+    accent: _hslToRgb(hue + 180, 92, 70),
+    shadow: _hslToRgb(hue + 15, 45, 6),
   };
 }
 
@@ -173,16 +190,11 @@ function _paletteFromArtwork(colors) {
   const [primary, secondary, tertiary] = colors;
   return {
     primary: _mixColor(primary, [255, 255, 255], 0.12),
-    secondary: _mixColor(secondary, [255, 255, 255], 0.08),
+    secondary: _mixColor(secondary, [255, 255, 255], 0.10),
     tertiary: _mixColor(tertiary, [255, 255, 255], 0.14),
     accent: _mixColor(secondary, tertiary, 0.5),
-    shadow: _mixColor(primary, [4, 6, 10], 0.88),
+    shadow: _mixColor(primary, [3, 5, 9], 0.90),
   };
-}
-
-function _sceneFromKey(songKey) {
-  const index = _hashString(songKey) % SCENES.length;
-  return SCENES[index];
 }
 
 function _songKeyFromDetail(detail) {
@@ -195,6 +207,8 @@ function _applyPaletteVariables(palette) {
   ROOT.style.setProperty("--ambient-primary", palette.primary.join(", "));
   ROOT.style.setProperty("--ambient-secondary", palette.secondary.join(", "));
   ROOT.style.setProperty("--ambient-tertiary", palette.tertiary.join(", "));
+  ROOT.style.setProperty("--ambient-accent", palette.accent.join(", "));
+  ROOT.style.setProperty("--ambient-shadow", palette.shadow.join(", "));
 }
 
 function _setSong(detail) {
@@ -202,13 +216,11 @@ function _setSong(detail) {
   const palette = _buildFallbackPalette(songKey);
   visual.targetPalette = palette;
   visual.seed = _hashString(songKey);
-  visual.scene = _sceneFromKey(songKey);
 
-  // Parámetros procedimentales únicos por canción
-  visual.flowAngle = (visual.seed % 360) * (Math.PI / 180);
-  visual.flowFreq = 0.7 + ((visual.seed % 100) / 100) * 1.4;
+  // ASIGNAR MODO DE ILUMINACIÓN DE ESCENARIO ÚNICO POR CANCIÓN
+  const modeIndex = visual.seed % STAGE_LIGHT_MODES.length;
+  visual.mode = STAGE_LIGHT_MODES[modeIndex];
 
-  document.body.dataset.ambientScene = visual.scene.id;
   _applyPaletteVariables(palette);
   if (detail?.coverUrl) _setArtwork(detail.coverUrl);
 }
@@ -240,19 +252,31 @@ function _setArtwork(url) {
 }
 
 function _lerpPalette(dt) {
-  const amount = 1 - Math.exp(-2.8 * dt);
+  const amount = 1 - Math.exp(-3.0 * dt);
   for (const key of Object.keys(visual.palette)) {
     visual.palette[key] = _mixColor(visual.palette[key], visual.targetPalette[key], amount);
   }
 }
 
+function _getColorByIndex(index) {
+  switch (index) {
+    case 0: return visual.palette.primary;
+    case 1: return visual.palette.secondary;
+    case 2: return visual.palette.tertiary;
+    case 3: default: return visual.palette.accent;
+  }
+}
+
+// ------------------------------------------------------------
+// CONFIGURACIÓN DE CANVAS Y RESIZE
+// ------------------------------------------------------------
 function resizeCanvas() {
   if (!ctx || !bgCanvas) return;
   const width = window.innerWidth;
   const height = window.innerHeight;
   const pixelBudget = (width <= 768 ? MOBILE_PIXEL_BUDGET : BASE_PIXEL_BUDGET) * quality;
   const budgetScale = Math.sqrt(pixelBudget / Math.max(1, width * height));
-  const renderScale = Math.min(window.devicePixelRatio || 1, LOW_POWER_MODE ? 0.82 : 1, budgetScale);
+  const renderScale = Math.min(window.devicePixelRatio || 1, LOW_POWER_MODE ? 0.85 : 1, budgetScale);
 
   bgCanvas.width = Math.max(1, Math.round(width * renderScale));
   bgCanvas.height = Math.max(1, Math.round(height * renderScale));
@@ -269,6 +293,17 @@ function scheduleCanvasResize() {
   });
 }
 
+function _clearCanvas() {
+  if (!ctx || !bgCanvas) return;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+  ctx.restore();
+}
+
+// ------------------------------------------------------------
+// CONTROL DE WEB AUDIO API
+// ------------------------------------------------------------
 function initAudioVisualizer() {
   if (!ctx) return;
   if (audioCtx) {
@@ -276,21 +311,25 @@ function initAudioVisualizer() {
     return;
   }
 
-  const AudioContext = window.AudioContext || window.webkitAudioContext;
-  audioCtx = new AudioContext();
-  analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 512;
-  analyser.smoothingTimeConstant = 0.72;
-  frequencyData = new Uint8Array(analyser.frequencyBinCount);
-  timeData = new Uint8Array(analyser.frequencyBinCount);
-  previousSpectrum = new Float32Array(analyser.frequencyBinCount);
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AudioContext();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.75;
+    frequencyData = new Uint8Array(analyser.frequencyBinCount);
+    timeData = new Uint8Array(analyser.frequencyBinCount);
+    previousSpectrum = new Float32Array(analyser.frequencyBinCount);
 
-  source = audioCtx.createMediaElementSource(audioPlayer);
-  gainNode = audioCtx.createGain();
-  gainNode.gain.value = pendingGain;
-  source.connect(gainNode);
-  gainNode.connect(analyser);
-  analyser.connect(audioCtx.destination);
+    source = audioCtx.createMediaElementSource(audioPlayer);
+    gainNode = audioCtx.createGain();
+    gainNode.gain.value = pendingGain;
+    source.connect(gainNode);
+    gainNode.connect(analyser);
+    analyser.connect(audioCtx.destination);
+  } catch {
+    // Si la captura falla por políticas de navegador, continúa de forma autónoma
+  }
 }
 
 function setTrackGain(gainDb) {
@@ -300,36 +339,34 @@ function setTrackGain(gainDb) {
   gainNode.gain.setTargetAtTime(pendingGain, audioCtx.currentTime, 0.12);
 }
 
-function _clearCanvas() {
-  if (!ctx || !bgCanvas) return;
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
-  ctx.restore();
-}
-
 function _startVisualizer() {
   if (!ctx) return;
-  if (clearCanvasTimer) window.clearTimeout(clearCanvasTimer);
-  clearCanvasTimer = null;
+  isAudioActive = true;
   document.body.classList.add("ambient-playing");
   lastRenderAt = 0;
   if (!frameRequest) drawVisualizer();
 }
 
 function _stopVisualizer() {
+  isAudioActive = false;
   document.body.classList.remove("ambient-playing");
   if (frameRequest) cancelAnimationFrame(frameRequest);
   frameRequest = null;
+
+  visual.bass = 0;
+  visual.lowMid = 0;
+  visual.highMid = 0;
+  visual.air = 0;
+  visual.rms = 0;
+  visual.energy = 0;
   visual.pulse = 0;
-  visual.ripples.length = 0;
-  if (clearCanvasTimer) window.clearTimeout(clearCanvasTimer);
-  clearCanvasTimer = window.setTimeout(() => {
-    _clearCanvas();
-    clearCanvasTimer = null;
-  }, AMBIENT_FADE_DURATION);
+
+  _clearCanvas();
 }
 
+// ------------------------------------------------------------
+// ANÁLISIS DEL ESPECTRO ACÚSTICO
+// ------------------------------------------------------------
 function _bandAverage(data, from, to) {
   let sum = 0;
   const end = Math.min(to, data.length);
@@ -368,7 +405,17 @@ function _computeFlux(data) {
 }
 
 function _readAudio(dt) {
-  if (!analyser) return;
+  if (!analyser || !isAudioActive) {
+    visual.bass = _smooth(visual.bass, 0, 8, 8, dt);
+    visual.lowMid = _smooth(visual.lowMid, 0, 8, 8, dt);
+    visual.highMid = _smooth(visual.highMid, 0, 8, 8, dt);
+    visual.air = _smooth(visual.air, 0, 8, 8, dt);
+    visual.rms = _smooth(visual.rms, 0, 8, 8, dt);
+    visual.flux = _smooth(visual.flux, 0, 8, 8, dt);
+    visual.energy = _smooth(visual.energy, 0, 8, 8, dt);
+    return;
+  }
+
   analyser.getByteFrequencyData(frequencyData);
   analyser.getByteTimeDomainData(timeData);
 
@@ -380,498 +427,210 @@ function _readAudio(dt) {
   const centroid = _computeCentroid(frequencyData);
   const flux = _computeFlux(frequencyData);
 
-  // Extraer 16 bandas discretas del espectro de audio para la malla fluida
   const binStep = Math.floor(frequencyData.length / 16);
   for (let i = 0; i < 16; i++) {
     const bandVal = _bandAverage(frequencyData, i * binStep, (i + 1) * binStep);
     targetBands[i] = bandVal;
-    spectrumBands[i] = _smooth(spectrumBands[i], targetBands[i], 18, 5.0, dt);
+    spectrumBands[i] = _smooth(spectrumBands[i], targetBands[i], 22, 7.0, dt);
   }
 
-  visual.bass = _smooth(visual.bass, bass, 16, 3.5, dt);
-  visual.lowMid = _smooth(visual.lowMid, lowMid, 13, 3.0, dt);
-  visual.highMid = _smooth(visual.highMid, highMid, 11, 2.6, dt);
-  visual.air = _smooth(visual.air, air, 9, 2.4, dt);
-  visual.rms = _smooth(visual.rms, rms, 15, 3.2, dt);
-  visual.centroid = _smooth(visual.centroid, centroid, 6, 4, dt);
-  visual.flux = _smooth(visual.flux, flux, 18, 8, dt);
+  visual.bass = _smooth(visual.bass, bass, 20, 5.0, dt);
+  visual.lowMid = _smooth(visual.lowMid, lowMid, 16, 4.0, dt);
+  visual.highMid = _smooth(visual.highMid, highMid, 14, 3.5, dt);
+  visual.air = _smooth(visual.air, air, 12, 3.0, dt);
+  visual.rms = _smooth(visual.rms, rms, 18, 4.2, dt);
+  visual.centroid = _smooth(visual.centroid, centroid, 8, 5, dt);
+  visual.flux = _smooth(visual.flux, flux, 22, 10, dt);
 
   const energy = _clamp(
-    (visual.bass * 1.5 + visual.lowMid * 1.1 + visual.highMid * 0.95 + visual.air * 0.7 + visual.rms * 1.3) / 5.5,
+    (visual.bass * 1.8 + visual.lowMid * 1.2 + visual.highMid * 1.0 + visual.air * 0.8 + visual.rms * 1.5) / 5.8,
     0,
     1
   );
-  visual.energy = _smooth(visual.energy, Math.max(0.08, energy), 9, 2.5, dt);
-  visual.beatFloor = _smooth(visual.beatFloor, visual.bass, 1.2, 0.7, dt);
-}
-
-function _sceneFocus(width, height, time, motionScale) {
-  const scene = visual.scene;
-  return {
-    x: width * scene.focusX + Math.sin(time * 0.22 * scene.drift) * width * 0.08 * motionScale + (visual.centroid - 0.5) * width * 0.18,
-    y: height * scene.focusY + Math.cos(time * 0.18 * scene.drift) * height * 0.09 * motionScale + (visual.rms - 0.16) * height * 0.15,
-  };
+  visual.energy = _smooth(visual.energy, energy, 14, 3.5, dt);
+  visual.beatFloor = _smooth(visual.beatFloor, visual.bass, 1.5, 0.9, dt);
 }
 
 // ------------------------------------------------------------
-// CAPA 1: Fondo Base de Cosmos & Nébula Dinámica
+// CAPA 1: FONDO CÓSMICO PROFUNDO BASE
 // ------------------------------------------------------------
-function _drawBaseWash(width, height, energy) {
-  const gradient = ctx.createLinearGradient(0, 0, width, height);
-  gradient.addColorStop(0, _rgba(visual.palette.shadow, 0.55));
-  gradient.addColorStop(0.5, _rgba(visual.palette.shadow, 0.35));
-  gradient.addColorStop(1, _rgba(visual.palette.shadow, 0.60));
+function _drawAtmosphericBase(width, height) {
+  const grad = ctx.createLinearGradient(0, 0, width, height);
+  grad.addColorStop(0, _rgba(visual.palette.shadow, 0.72));
+  grad.addColorStop(0.5, _rgba([6, 8, 12], 0.84));
+  grad.addColorStop(1, _rgba(visual.palette.shadow, 0.78));
   ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = gradient;
+  ctx.fillStyle = grad;
   ctx.fillRect(0, 0, width, height);
 }
 
-function _drawAtmosphere(width, height, short, time, focus, motionScale) {
+// ------------------------------------------------------------
+// CAPA 2: NÚCLEO Y VELOS DE LUZ ACÚSTICA (100% Reactivo a la Música)
+// ------------------------------------------------------------
+function _drawAcousticLightAtmosphere(width, height, short, time, motionScale) {
+  ctx.globalCompositeOperation = "screen";
+
+  const mode = visual.mode;
   const energy = visual.energy;
-  const scene = visual.scene;
+  const bass = visual.bass;
+  const lowMid = visual.lowMid;
+  const highMid = visual.highMid;
+  const air = visual.air;
 
-  const glows = [
-    {
-      x: focus.x - width * 0.15 + Math.sin(time * 0.18) * width * 0.07 * motionScale,
-      y: focus.y - height * 0.12,
-      rx: short * (0.55 + visual.bass * 0.25),
-      ry: short * (0.40 + visual.bass * 0.18),
-      rotation: scene.rotation - 0.2,
-      color: visual.palette.primary,
-      alpha: 0.18 + visual.bass * 0.16,
-    },
-    {
-      x: focus.x + width * 0.20 + Math.cos(time * 0.15) * width * 0.08 * motionScale,
-      y: focus.y + height * 0.04,
-      rx: short * (0.48 + visual.lowMid * 0.22),
-      ry: short * (0.36 + visual.lowMid * 0.15),
-      rotation: scene.rotation + 0.4,
-      color: visual.palette.secondary,
-      alpha: 0.15 + visual.lowMid * 0.14,
-    },
-    {
-      x: focus.x + Math.sin(time * 0.25 + 2.0) * width * 0.15 * motionScale,
-      y: focus.y + height * 0.25,
-      rx: short * (0.42 + visual.highMid * 0.20),
-      ry: short * (0.30 + visual.highMid * 0.14),
-      rotation: scene.rotation - 0.6,
-      color: visual.palette.tertiary,
-      alpha: 0.13 + visual.highMid * 0.12,
-    },
-  ];
+  const focusX = width * mode.focusX + (pointer.x - 0.5) * width * 0.12 * motionScale;
+  const focusY = height * mode.focusY + (pointer.y - 0.5) * height * 0.10 * motionScale;
 
-  ctx.globalCompositeOperation = "screen";
-  glows.slice(0, LOW_POWER_MODE ? 2 : 3).forEach((glow) => {
+  // 1. Nodos de Luz Fluida en Movimiento Armónico (Mapeados a las frecuencias)
+  lightNodes.forEach((node, idx) => {
+    const t = time * node.speed * mode.drift * (0.6 + energy * 0.9) * motionScale;
+    const wanderX = Math.sin(t + node.phaseX) * node.driftAmpX * width;
+    const wanderY = Math.cos(t * 0.85 + node.phaseY) * node.driftAmpY * height;
+
+    node.currentX = width * node.baseX + wanderX + (pointer.x - 0.5) * 40;
+    node.currentY = height * node.baseY + wanderY + (pointer.y - 0.5) * 30;
+
+    // Modulación del radio por frecuencias:
+    // Nodos 0-1: Graves / Sub-bass
+    // Nodos 2-3: Medios / Vocales
+    // Nodos 4-5: Agudos / Aire
+    const freqBoost = idx < 2 ? bass * 0.45 : idx < 4 ? lowMid * 0.38 : highMid * 0.32;
+    const baseRad = short * node.baseRadiusScale;
+    const radius = baseRad * (1.0 + energy * 1.2 + freqBoost + visual.pulse * 0.6);
+
+    const color = _getColorByIndex(node.colorIndex);
+    const alphaBase = 0.16 + (idx < 2 ? bass * 0.28 : lowMid * 0.22) + visual.pulse * 0.14;
+    const alpha = _clamp(alphaBase * (0.5 + energy * 0.9), 0.05, 0.65);
+
+    // Ondulación elíptica armónica que respira con la música
+    const morphX = 1 + Math.sin(time * 2.2 + node.phaseX) * (0.10 + bass * 0.20);
+    const morphY = 1 - Math.sin(time * 1.8 + node.phaseY) * (0.08 + lowMid * 0.15);
+
     ctx.save();
-    ctx.translate(glow.x, glow.y);
-    ctx.rotate(glow.rotation);
-    ctx.scale(glow.rx, glow.ry);
-    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-    grad.addColorStop(0, _rgba(glow.color, glow.alpha + energy * 0.04));
-    grad.addColorStop(0.45, _rgba(glow.color, glow.alpha * 0.40));
-    grad.addColorStop(1, _rgba(glow.color, 0));
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(0, 0, 1, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  });
-}
+    ctx.translate(node.currentX, node.currentY);
+    ctx.rotate(time * 0.15 * (idx % 2 === 0 ? 1 : -1) + node.phaseX);
+    ctx.scale(morphX, morphY);
 
-// ------------------------------------------------------------
-// CAPA 2: Geometría de Escena Procedural (6 Escenas Únicas)
-// ------------------------------------------------------------
-function _drawSceneGeometry(width, height, short, time, focus, motionScale) {
-  const sceneId = visual.scene.id;
-
-  switch (sceneId) {
-    case "cybergrid":
-      _drawCyberGrid(width, height, time, motionScale);
-      break;
-    case "supernova":
-      _drawSupernovaCore(width, height, short, time, focus);
-      break;
-    case "hyperdrive":
-      _drawHyperdriveRays(width, height, time, focus);
-      break;
-    case "vortex":
-      _drawVortexSpiral(width, height, short, time, focus);
-      break;
-    case "galaxy":
-      _drawGalaxySwirl(width, height, short, time, focus);
-      break;
-    case "aurora":
-    default:
-      _drawAuroraMesh(width, height, short, time, motionScale);
-      break;
-  }
-}
-
-// 1. Quantum Fluid Aurora Mesh
-function _drawAuroraMesh(width, height, short, time, motionScale) {
-  const scene = visual.scene;
-  const speed = (0.50 + visual.energy * 1.40) * motionScale * visual.flowFreq;
-  const segments = LOW_POWER_MODE ? 10 : 16;
-
-  ctx.save();
-  ctx.translate(width * scene.focusX, height * scene.focusY);
-  ctx.rotate(scene.rotation + visual.flowAngle * 0.15 + (visual.centroid - 0.5) * 0.35);
-  ctx.translate(-width * scene.focusX, -height * scene.focusY);
-  ctx.globalCompositeOperation = "screen";
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  const veils = [
-    { y: 0.28, waves: 2.2, speed: speed * 0.75, color: visual.palette.primary, alpha: 0.12 + visual.bass * 0.12, width: short * 0.14 },
-    { y: 0.50, waves: 1.8, speed: speed * 0.60, color: visual.palette.secondary, alpha: 0.10 + visual.lowMid * 0.11, width: short * 0.16 },
-    { y: 0.70, waves: 2.5, speed: speed * 0.90, color: visual.palette.tertiary, alpha: 0.09 + visual.highMid * 0.10, width: short * 0.12 },
-  ];
-
-  veils.slice(0, LOW_POWER_MODE ? 2 : 3).forEach((cfg, vIdx) => {
-    const points = [];
-    for (let i = 0; i <= segments; i++) {
-      const r = i / segments;
-      const x = -width * 0.15 + r * width * 1.30;
-      const bandMod = spectrumBands[i % 16] * height * 0.15;
-      const y = height * cfg.y + Math.sin(r * Math.PI * cfg.waves + time * cfg.speed + vIdx) * (height * 0.08 + visual.bass * 60) + bandMod;
-      points.push({ x, y });
-    }
-
-    const gradient = ctx.createLinearGradient(0, 0, width, height);
-    gradient.addColorStop(0, _rgba(cfg.color, 0));
-    gradient.addColorStop(0.3, _rgba(cfg.color, cfg.alpha * 0.65));
-    gradient.addColorStop(0.6, _rgba(_mixColor(cfg.color, visual.palette.accent, 0.4), cfg.alpha));
-    gradient.addColorStop(1, _rgba(cfg.color, 0));
-
-    ctx.strokeStyle = gradient;
-    ctx.lineWidth = cfg.width;
-
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length - 1; i++) {
-      const mx = (points[i].x + points[i + 1].x) / 2;
-      const my = (points[i].y + points[i + 1].y) / 2;
-      ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
-    }
-    ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
-    ctx.stroke();
-  });
-
-  ctx.restore();
-}
-
-// 2. Cosmic Supernova Core
-function _drawSupernovaCore(width, height, short, time, focus) {
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-
-  const coreRadius = short * (0.16 + visual.bass * 0.28 + visual.pulse * 0.15);
-  const color = _mixColor(visual.palette.primary, visual.palette.accent, 0.4);
-
-  const grad = ctx.createRadialGradient(focus.x, focus.y, 0, focus.x, focus.y, coreRadius);
-  grad.addColorStop(0, _rgba(color, 0.28 + visual.bass * 0.20));
-  grad.addColorStop(0.5, _rgba(visual.palette.secondary, 0.12 + visual.lowMid * 0.10));
-  grad.addColorStop(1, _rgba(visual.palette.shadow, 0));
-
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(focus.x, focus.y, coreRadius, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Anillos orbitales
-  const ringCount = LOW_POWER_MODE ? 2 : 4;
-  for (let r = 0; r < ringCount; r++) {
-    const ringRad = coreRadius * (1.3 + r * 0.45);
-    const rot = time * (0.2 + r * 0.1) * (r % 2 === 0 ? 1 : -1);
-    ctx.save();
-    ctx.translate(focus.x, focus.y);
-    ctx.rotate(rot);
-    ctx.scale(1.0, 0.45 + r * 0.1);
-    ctx.strokeStyle = _rgba(r % 2 === 0 ? visual.palette.tertiary : visual.palette.accent, 0.15 + visual.highMid * 0.12);
-    ctx.lineWidth = 2 + r;
-    ctx.beginPath();
-    ctx.arc(0, 0, ringRad, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  ctx.restore();
-}
-
-// 3. Cyber Waveform Grid (3D Perspective)
-function _drawCyberGrid(width, height, time, motionScale) {
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-
-  const horizonY = height * 0.55;
-  const lines = LOW_POWER_MODE ? 12 : 20;
-
-  ctx.strokeStyle = _rgba(visual.palette.secondary, 0.12 + visual.energy * 0.10);
-  ctx.lineWidth = 1.5;
-
-  // Líneas de perspectiva vertical
-  for (let i = -lines; i <= lines; i++) {
-    const x1 = width * 0.5 + i * (width / lines) * 0.1;
-    const x2 = width * 0.5 + i * (width / lines) * 1.2;
-    ctx.beginPath();
-    ctx.moveTo(x1, horizonY);
-    ctx.lineTo(x2, height);
-    ctx.stroke();
-  }
-
-  // Líneas horizontales en movimiento con modulación por bandas de audio
-  const horizCount = LOW_POWER_MODE ? 6 : 10;
-  for (let j = 0; j < horizCount; j++) {
-    const progress = (j / horizCount + (time * 0.4) % (1 / horizCount));
-    const y = horizonY + progress * progress * (height - horizonY);
-    const bandIdx = Math.floor(progress * 15);
-    const offset = spectrumBands[bandIdx] * 40 * (progress * 1.5);
-
-    ctx.strokeStyle = _rgba(_mixColor(visual.palette.primary, visual.palette.accent, progress), 0.14 * progress + visual.bass * 0.1);
-    ctx.beginPath();
-    ctx.moveTo(0, y - offset);
-    ctx.lineTo(width, y - offset);
-    ctx.stroke();
-  }
-
-  ctx.restore();
-}
-
-// 4. Bioluminescent Vortex
-function _drawVortexSpiral(width, height, short, time, focus) {
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  ctx.translate(focus.x, focus.y);
-
-  const arms = LOW_POWER_MODE ? 3 : 5;
-  const points = 24;
-  const maxRadius = short * 0.6;
-
-  for (let a = 0; a < arms; a++) {
-    const angleOffset = (a / arms) * Math.PI * 2 + time * 0.3;
-    ctx.beginPath();
-    for (let p = 0; p < points; p++) {
-      const r = (p / points) * maxRadius;
-      const angle = angleOffset + (p / points) * Math.PI * 2.5;
-      const x = Math.cos(angle) * r;
-      const y = Math.sin(angle) * r * 0.6;
-      if (p === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    const color = a % 2 === 0 ? visual.palette.primary : visual.palette.tertiary;
-    ctx.strokeStyle = _rgba(color, 0.12 + visual.lowMid * 0.12);
-    ctx.lineWidth = short * 0.025;
-    ctx.stroke();
-  }
-
-  ctx.restore();
-}
-
-// 5. Hyperdrive Light Rays
-function _drawHyperdriveRays(width, height, time, focus) {
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-
-  const rayCount = LOW_POWER_MODE ? 10 : 20;
-  const angleStep = (Math.PI * 2) / rayCount;
-
-  for (let i = 0; i < rayCount; i++) {
-    const angle = i * angleStep + time * 0.1;
-    const rayLength = Math.max(width, height) * (0.6 + Math.sin(angle * 3 + time) * 0.2 + visual.bass * 0.3);
-    const x2 = focus.x + Math.cos(angle) * rayLength;
-    const y2 = focus.y + Math.sin(angle) * rayLength;
-
-    const grad = ctx.createLinearGradient(focus.x, focus.y, x2, y2);
-    const color = i % 3 === 0 ? visual.palette.primary : i % 3 === 1 ? visual.palette.secondary : visual.palette.accent;
-    grad.addColorStop(0, _rgba(color, 0.20 + visual.energy * 0.15));
-    grad.addColorStop(0.5, _rgba(color, 0.08));
+    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, radius);
+    grad.addColorStop(0, _rgba(color, alpha));
+    grad.addColorStop(0.35, _rgba(color, alpha * 0.60));
+    grad.addColorStop(0.70, _rgba(color, alpha * 0.15));
     grad.addColorStop(1, _rgba(color, 0));
 
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 12 + Math.sin(i + time * 2) * 6;
+    ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.moveTo(focus.x, focus.y);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-  }
-
-  ctx.restore();
-}
-
-// 6. Starlight Galaxy Field
-function _drawGalaxySwirl(width, height, short, time, focus) {
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  ctx.translate(focus.x, focus.y);
-
-  const starCount = LOW_POWER_MODE ? 20 : 45;
-  for (let i = 0; i < starCount; i++) {
-    const angle = i * 0.3 + time * (0.2 + (i % 5) * 0.05);
-    const dist = (0.1 + (i / starCount) * 0.85) * short * 0.55;
-    const x = Math.cos(angle) * dist;
-    const y = Math.sin(angle) * dist * 0.7;
-    const size = 1.5 + (i % 3) * 1.5 + visual.air * 2;
-
-    ctx.fillStyle = _rgba(i % 2 === 0 ? visual.palette.accent : visual.palette.primary, 0.25 + visual.air * 0.35);
-    ctx.beginPath();
-    ctx.arc(x, y, size, 0, Math.PI * 2);
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.fill();
-  }
+    ctx.restore();
+  });
 
-  ctx.restore();
-}
+  // 2. Haces de Luz Volumétrica (Se abren y giran al subir la potencia del audio)
+  if (!LOW_POWER_MODE && mode.id === "volumetric_beams") {
+    const beamCount = 8;
+    const beamLength = Math.max(width, height) * (0.65 + energy * 0.45);
+    for (let b = 0; b < beamCount; b++) {
+      const angle = (b / beamCount) * Math.PI * 2 + time * 0.12 * motionScale;
+      const beamGrad = ctx.createLinearGradient(focusX, focusY, focusX + Math.cos(angle) * beamLength, focusY + Math.sin(angle) * beamLength);
+      const bColor = _getColorByIndex(b % 4);
+      const bAlpha = _clamp((0.10 + bass * 0.18 + visual.pulse * 0.16) * (0.5 + energy * 0.8), 0.02, 0.42);
 
-// ------------------------------------------------------------
-// CAPA 3: Ecualizador de Espectro Fluido (Spectrum Equalizer Ribbon)
-// ------------------------------------------------------------
-function _drawSpectrumRibbon(width, height, short, time) {
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  ctx.lineCap = "round";
+      beamGrad.addColorStop(0, _rgba(bColor, bAlpha));
+      beamGrad.addColorStop(0.50, _rgba(bColor, bAlpha * 0.40));
+      beamGrad.addColorStop(1, _rgba(bColor, 0));
 
-  const points = 16;
-  const step = width / (points - 1);
-  const baselineY = height * 0.82;
-
-  ctx.beginPath();
-  for (let i = 0; i < points; i++) {
-    const x = i * step;
-    const h = spectrumBands[i] * height * 0.25;
-    const y = baselineY - h;
-
-    if (i === 0) ctx.moveTo(x, y);
-    else {
-      const prevX = (i - 1) * step;
-      const mx = (prevX + x) / 2;
-      ctx.quadraticCurveTo(prevX, baselineY - spectrumBands[i - 1] * height * 0.25, mx, y);
+      ctx.save();
+      ctx.translate(focusX, focusY);
+      ctx.rotate(angle);
+      ctx.fillStyle = beamGrad;
+      ctx.beginPath();
+      ctx.moveTo(0, -short * 0.04);
+      ctx.lineTo(beamLength, -short * (0.08 + bass * 0.08));
+      ctx.lineTo(beamLength, short * (0.08 + bass * 0.08));
+      ctx.lineTo(0, short * 0.04);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
   }
 
-  const grad = ctx.createLinearGradient(0, baselineY - height * 0.25, width, baselineY);
-  grad.addColorStop(0, _rgba(visual.palette.primary, 0.12 + visual.bass * 0.15));
-  grad.addColorStop(0.5, _rgba(visual.palette.accent, 0.18 + visual.highMid * 0.15));
-  grad.addColorStop(1, _rgba(visual.palette.tertiary, 0.12 + visual.air * 0.15));
+  // 3. Resplandor de Agudos & Brillo Espectral
+  if (air > 0.15) {
+    const airRadius = short * (0.45 + air * 0.40);
+    const airColor = _mixColor(visual.palette.accent, [255, 255, 255], 0.35);
+    const airGrad = ctx.createRadialGradient(focusX, focusY, 0, focusX, focusY, airRadius);
+    const airAlpha = _clamp(air * 0.22, 0.02, 0.25);
 
-  ctx.strokeStyle = grad;
-  ctx.lineWidth = short * 0.015;
-  ctx.stroke();
+    airGrad.addColorStop(0, _rgba(airColor, airAlpha));
+    airGrad.addColorStop(0.50, _rgba(visual.palette.tertiary, airAlpha * 0.40));
+    airGrad.addColorStop(1, _rgba(visual.palette.tertiary, 0));
 
-  ctx.restore();
-}
-
-// ------------------------------------------------------------
-// CAPA 4: Campo de Partículas de Turbulencia Vectorial
-// ------------------------------------------------------------
-function _drawStarlight(width, height, time, dt) {
-  if (!particles.length) return;
-
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-
-  const speedMult = 1 + visual.highMid * 1.8 + visual.air * 2.5;
-  const brightnessMult = 0.7 + visual.air * 0.9 + visual.pulse * 0.6;
-
-  particles.forEach((p) => {
-    p.y += p.vy * dt * speedMult;
-    p.x += p.vx * dt * speedMult;
-
-    // Reciclar partícula
-    if (p.y < -0.05) p.y = 1.05;
-    if (p.y > 1.05) p.y = -0.05;
-    if (p.x < -0.05) p.x = 1.05;
-    if (p.x > 1.05) p.x = -0.05;
-
-    const px = p.x * width;
-    const py = p.y * height;
-    const shimmer = Math.sin(time * 3 + p.phase) * 0.35 + 0.65;
-    const alpha = _clamp(p.alpha * brightnessMult * shimmer, 0.05, 0.90);
-
-    const rad = p.size * (1 + visual.air * 0.6);
-    ctx.fillStyle = _rgba(visual.palette.accent, alpha);
+    ctx.fillStyle = airGrad;
     ctx.beginPath();
-    ctx.arc(px, py, rad, 0, Math.PI * 2);
+    ctx.arc(focusX, focusY, airRadius, 0, Math.PI * 2);
     ctx.fill();
-  });
-
-  ctx.restore();
+  }
 }
 
 // ------------------------------------------------------------
-// CAPA 5: Beat Shockwaves & Aberración Cromática Sutil
+// CAPA 3: RÁFAGA DE LUZ EN GOLPES DE RITMO (BEAT FLASH BLOOM)
+// Explosión de luz expansiva en bombos y drops (100% lumínico, 0 rayas)
 // ------------------------------------------------------------
-function _spawnRipple(focus, short) {
-  visual.ripples.push({
-    x: focus.x,
-    y: focus.y,
-    radius: short * 0.08,
-    life: 1,
-    colorA: visual.palette.primary,
-    colorB: visual.palette.accent,
-  });
-  if (visual.ripples.length > (LOW_POWER_MODE ? 2 : 4)) visual.ripples.shift();
-}
+function _drawAcousticBeatBloom(width, height, short) {
+  if (visual.pulse < 0.02) return;
+  const cx = width * pointer.x;
+  const cy = height * pointer.y;
+  const radius = short * (0.42 + visual.pulse * 0.60);
+  const color = _mixColor(visual.palette.accent, [255, 255, 255], 0.45);
 
-function _drawRipples(short, dt) {
-  if (!visual.ripples.length) return;
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  grad.addColorStop(0, _rgba(color, visual.pulse * 0.30));
+  grad.addColorStop(0.35, _rgba(visual.palette.primary, visual.pulse * 0.15));
+  grad.addColorStop(0.70, _rgba(visual.palette.secondary, visual.pulse * 0.05));
+  grad.addColorStop(1, _rgba(visual.palette.secondary, 0));
+
   ctx.save();
   ctx.globalCompositeOperation = "screen";
-  visual.ripples = visual.ripples.filter((ripple) => ripple.life > 0.025);
-  visual.ripples.forEach((ripple) => {
-    ripple.radius += (short * 0.25 + visual.energy * short * 0.18) * dt;
-    ripple.life *= Math.exp(-2.5 * dt);
-
-    // Aberración cromática doble anillo
-    ctx.strokeStyle = _rgba(ripple.colorA, ripple.life * 0.14);
-    ctx.lineWidth = short * 0.012 * ripple.life;
-    ctx.beginPath();
-    ctx.arc(ripple.x - 3, ripple.y, ripple.radius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.strokeStyle = _rgba(ripple.colorB, ripple.life * 0.14);
-    ctx.beginPath();
-    ctx.arc(ripple.x + 3, ripple.y, ripple.radius * 1.02, 0, Math.PI * 2);
-    ctx.stroke();
-  });
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
-function _drawPulseBloom(short, focus) {
-  if (visual.pulse < 0.02) return;
-  const radius = short * (0.22 + visual.pulse * 0.28);
-  const color = _mixColor(visual.palette.accent, [255, 255, 255], 0.30);
-  const gradient = ctx.createRadialGradient(focus.x, focus.y, 0, focus.x, focus.y, radius);
-  gradient.addColorStop(0, _rgba(color, visual.pulse * 0.14));
-  gradient.addColorStop(0.45, _rgba(color, visual.pulse * 0.05));
-  gradient.addColorStop(1, _rgba(color, 0));
-  ctx.globalCompositeOperation = "screen";
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.arc(focus.x, focus.y, radius, 0, Math.PI * 2);
-  ctx.fill();
-}
-
 // ------------------------------------------------------------
-// CAPA 6: Máscara de Viñeta Oscura Integrada (Garantiza Legibilidad UI)
+// CAPA 4: VIÑETA DE CONTRASTE & LEGIBILIDAD UI
 // ------------------------------------------------------------
 function _drawCenterVignette(width, height) {
-  const gradient = ctx.createRadialGradient(width * 0.5, height * 0.5, height * 0.18, width * 0.5, height * 0.5, Math.max(width, height) * 0.75);
-  gradient.addColorStop(0, "rgba(6, 8, 12, 0.28)");
-  gradient.addColorStop(0.55, "rgba(6, 8, 12, 0.52)");
-  gradient.addColorStop(1, "rgba(6, 8, 12, 0.78)");
+  const maxDim = Math.max(width, height);
+  const grad = ctx.createRadialGradient(
+    width * 0.5,
+    height * 0.5,
+    height * 0.16,
+    width * 0.5,
+    height * 0.5,
+    maxDim * 0.72
+  );
+  grad.addColorStop(0, "rgba(6, 8, 12, 0.10)");
+  grad.addColorStop(0.50, "rgba(6, 8, 12, 0.38)");
+  grad.addColorStop(1, "rgba(6, 8, 12, 0.85)");
 
   ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = gradient;
+  ctx.fillStyle = grad;
   ctx.fillRect(0, 0, width, height);
 }
 
+// ------------------------------------------------------------
+// ACTUALIZACIÓN DE VARIABLES CSS & PARALAJE
+// ------------------------------------------------------------
 function _updateCss(time, motionScale) {
-  const scene = visual.scene;
+  pointer.x += (pointer.targetX - pointer.x) * 0.08;
+  pointer.y += (pointer.targetY - pointer.y) * 0.08;
+
   const energy = visual.energy;
-  const driftX = Math.sin(time * 0.28 * scene.drift) * (24 + energy * 46) * motionScale + (visual.centroid - 0.5) * 70;
-  const driftY = Math.cos(time * 0.22 * scene.drift) * (20 + energy * 36) * motionScale + (visual.rms - 0.16) * 50;
-  const intensity = _clamp(0.26 + energy * 0.55 + visual.flux * 0.14, 0.22, 0.80);
-  const beatScale = _clamp(visual.pulse * 0.040, 0, 0.06);
-  const rotation = scene.rotation * 40 + Math.sin(time * 0.14) * 6;
+  const driftX = Math.sin(time * 0.22) * (18 + energy * 36) * motionScale + (pointer.x - 0.5) * 50;
+  const driftY = Math.cos(time * 0.18) * (15 + energy * 28) * motionScale + (pointer.y - 0.5) * 40;
+  const intensity = _clamp(0.25 + energy * 0.60 + visual.flux * 0.15, 0.20, 0.90);
+  const beatScale = _clamp(visual.pulse * 0.038, 0, 0.06);
+  const rotation = Math.sin(time * 0.10) * 4 + (pointer.x - 0.5) * 5;
 
   const targets = [ambientOverlay, ambientArtwork, nowPlaying].filter(Boolean);
   targets.forEach((target) => {
@@ -879,31 +638,38 @@ function _updateCss(time, motionScale) {
     target.style.setProperty("--ambient-beat-scale", beatScale.toFixed(3));
     target.style.setProperty("--ambient-shift-x", `${driftX.toFixed(1)}px`);
     target.style.setProperty("--ambient-shift-y", `${driftY.toFixed(1)}px`);
-    target.style.setProperty("--ambient-local-x", `${(driftX * 0.25).toFixed(1)}px`);
-    target.style.setProperty("--ambient-local-y", `${(driftY * 0.18).toFixed(1)}px`);
+    target.style.setProperty("--ambient-local-x", `${(driftX * 0.20).toFixed(1)}px`);
+    target.style.setProperty("--ambient-local-y", `${(driftY * 0.15).toFixed(1)}px`);
     target.style.setProperty("--ambient-rotate", `${rotation.toFixed(2)}deg`);
+    target.style.setProperty("--ambient-pointer-x", pointer.x.toFixed(3));
+    target.style.setProperty("--ambient-pointer-y", pointer.y.toFixed(3));
   });
 }
 
+// ------------------------------------------------------------
+// PROFILER ADAPTATIVO (60 FPS FIJOS)
+// ------------------------------------------------------------
 function _adaptQuality(renderCost, now) {
   averageRenderCost = averageRenderCost ? averageRenderCost * 0.94 + renderCost * 0.06 : renderCost;
-  if (now - qualityCheckAt < 2200 || LOW_POWER_MODE || reduceMotionQuery.matches) return;
+  if (now - qualityCheckAt < 2000 || LOW_POWER_MODE || reduceMotionQuery.matches) return;
   qualityCheckAt = now;
 
-  if (averageRenderCost > 14 && quality > 0.72) {
-    quality = 0.72;
+  if (averageRenderCost > 13.5 && quality > 0.70) {
+    quality = 0.70;
     frameInterval = 1000 / DEGRADED_FPS;
     scheduleCanvasResize();
-  } else if (averageRenderCost < 6.5 && quality < 1) {
+  } else if (averageRenderCost < 6.0 && quality < 1) {
     quality = 1;
     frameInterval = 1000 / NORMAL_FPS;
     scheduleCanvasResize();
   }
 }
 
-// Bucle Principal de Renderizado 60 FPS
+// ------------------------------------------------------------
+// BUCLE PRINCIPAL DE RENDERIZADO
+// ------------------------------------------------------------
 function drawVisualizer(frameAt = performance.now()) {
-  if (!ctx || document.hidden || audioPlayer.paused) {
+  if (!ctx || document.hidden || !isAudioActive) {
     frameRequest = null;
     return;
   }
@@ -912,37 +678,39 @@ function drawVisualizer(frameAt = performance.now()) {
   const elapsed = frameAt - lastRenderAt;
   if (elapsed < frameInterval) return;
   lastRenderAt = frameAt - (elapsed % frameInterval);
+
   const renderStartedAt = performance.now();
   const dt = Math.min(elapsed / 1000, 0.10);
   const width = window.innerWidth;
   const height = window.innerHeight;
   const short = Math.min(width, height);
   const time = frameAt / 1000;
-  const motionScale = reduceMotionQuery.matches ? 0.12 : 1;
+  const motionScale = reduceMotionQuery.matches ? 0.15 : 1;
 
   beatCooldown = Math.max(0, beatCooldown - dt);
   _readAudio(dt);
   _lerpPalette(dt);
-  const focus = _sceneFocus(width, height, time, motionScale);
-  const transient = visual.bass - visual.beatFloor;
 
-  if (!reduceMotionQuery.matches && beatCooldown === 0 && visual.bass > 0.30 && transient > 0.028 && visual.flux > 0.06) {
-    visual.pulse = _clamp(visual.pulse + 0.45 + visual.flux * 0.32, 0, 1);
-    _spawnRipple(focus, short);
-    beatCooldown = 0.18;
+  // Detección de golpes de bombo / transitorios
+  const transient = visual.bass - visual.beatFloor;
+  if (
+    !reduceMotionQuery.matches &&
+    beatCooldown === 0 &&
+    visual.bass > 0.28 &&
+    transient > 0.025 &&
+    visual.flux > 0.05
+  ) {
+    visual.pulse = _clamp(visual.pulse + 0.45 + visual.flux * 0.35, 0, 1);
+    beatCooldown = 0.16;
   }
-  visual.pulse *= Math.exp(-4.5 * dt);
+  visual.pulse *= Math.exp(-4.2 * dt);
 
   ctx.clearRect(0, 0, width, height);
 
-  // Renderizado por capas (Paralaje & Dinamismo HD)
-  _drawBaseWash(width, height, visual.energy);
-  _drawAtmosphere(width, height, short, time, focus, motionScale);
-  _drawSceneGeometry(width, height, short, time, focus, motionScale);
-  _drawSpectrumRibbon(width, height, short, time);
-  _drawStarlight(width, height, time, dt);
-  _drawRipples(short, dt);
-  _drawPulseBloom(short, focus);
+  // Renderizado 100% de luz acústica envolvente
+  _drawAtmosphericBase(width, height);
+  _drawAcousticLightAtmosphere(width, height, short, time, motionScale);
+  _drawAcousticBeatBloom(width, height, short);
   _drawCenterVignette(width, height);
 
   ctx.globalCompositeOperation = "source-over";
@@ -954,20 +722,26 @@ function drawVisualizer(frameAt = performance.now()) {
   _adaptQuality(performance.now() - renderStartedAt, frameAt);
 }
 
-resizeCanvas();
-_setSong({ title: DEFAULT_SONG_KEY });
-_clearCanvas();
-document.body.classList.toggle("ambient-low-power", LOW_POWER_MODE);
+// ------------------------------------------------------------
+// LISTENERS & EVENTOS
+// ------------------------------------------------------------
+window.addEventListener("pointermove", (e) => {
+  pointer.targetX = _clamp(e.clientX / Math.max(1, window.innerWidth), 0.1, 0.9);
+  pointer.targetY = _clamp(e.clientY / Math.max(1, window.innerHeight), 0.1, 0.9);
+}, { passive: true });
 
 window.addEventListener("resize", scheduleCanvasResize, { passive: true });
+
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     if (frameRequest) cancelAnimationFrame(frameRequest);
     frameRequest = null;
-  } else if (!audioPlayer.paused) {
-    _startVisualizer();
+  } else if (isAudioActive) {
+    lastRenderAt = performance.now();
+    if (!frameRequest) drawVisualizer();
   }
 });
+
 window.addEventListener("music-lab:songchange", (event) => _setSong(event.detail));
 window.addEventListener("music-lab:artworkpalette", (event) => _setArtworkPalette(event.detail));
 window.addEventListener("music-lab:trackgain", (event) => setTrackGain(event.detail?.gainDb));
@@ -980,3 +754,9 @@ audioPlayer.addEventListener("play", () => {
 });
 audioPlayer.addEventListener("pause", _stopVisualizer);
 audioPlayer.addEventListener("ended", _stopVisualizer);
+
+// Inicialización de arranque (apagado y limpio al inicio)
+resizeCanvas();
+_setSong({ title: DEFAULT_SONG_KEY });
+document.body.classList.toggle("ambient-low-power", LOW_POWER_MODE);
+_clearCanvas();

@@ -24,15 +24,19 @@
   --accent-soft: rgba(30, 215, 96, 0.13);
   --accent-glow: rgba(30, 215, 96, 0.25);
   --ambient-primary: 30, 215, 96;
-  --ambient-secondary: 46, 126, 228;
-  --ambient-tertiary: 151, 84, 225;
-  --ambient-intensity: 0.28;
+  --ambient-secondary: 56, 138, 248;
+  --ambient-tertiary: 168, 85, 247;
+  --ambient-accent: 236, 72, 153;
+  --ambient-shadow: 6, 8, 12;
+  --ambient-intensity: 0.32;
   --ambient-beat-scale: 0;
   --ambient-shift-x: 0px;
   --ambient-shift-y: 0px;
   --ambient-local-x: 0px;
   --ambient-local-y: 0px;
   --ambient-rotate: 0deg;
+  --ambient-pointer-x: 0.5;
+  --ambient-pointer-y: 0.5;
 
   /* Estados */
   --danger: #f15e6c;
@@ -58,9 +62,8 @@
   --art-hue: 142;
 }
 
-/* Fondo inmersivo: la carátula aporta identidad, el canvas aporta movimiento y
-   el overlay mantiene el contraste. Las tres capas exceden el viewport para
-   que el blur y el overscroll nunca revelen bordes negros. */
+/* Fondo inmersivo: la carátula aporta identidad, el canvas aporta movimiento orgánico,
+   la capa de grano elimina el banding de color y el overlay asegura contraste WCAG. */
 .bg-artwork {
   position: fixed;
   inset: -10vmax;
@@ -75,7 +78,7 @@
     )
     scale(calc(1.04 + var(--ambient-beat-scale)));
   transform-origin: center;
-  transition: opacity 700ms ease, transform 180ms linear;
+  transition: opacity 700ms cubic-bezier(0.22, 1, 0.36, 1), transform 180ms linear;
   will-change: transform, opacity;
 }
 
@@ -87,8 +90,8 @@
   object-fit: cover;
   opacity: 0;
   visibility: hidden;
-  filter: blur(42px) saturate(1.15) contrast(1.02);
-  transform: scale(1.08);
+  filter: blur(48px) saturate(1.25) contrast(1.05);
+  transform: scale(1.10);
   transition:
     opacity 900ms cubic-bezier(0.22, 0.61, 0.36, 1),
     visibility 0s linear 900ms;
@@ -101,7 +104,7 @@
 }
 
 body.ambient-playing .bg-artwork.has-artwork {
-  opacity: calc(0.12 + var(--ambient-intensity) * 0.08);
+  opacity: calc(0.16 + var(--ambient-intensity) * 0.10);
 }
 
 .bg-canvas {
@@ -114,28 +117,28 @@ body.ambient-playing .bg-artwork.has-artwork {
   z-index: 0;
   pointer-events: none;
   opacity: 0;
-  transform: scale(1.05);
+  transform: scale(1.02);
   transform-origin: center;
   will-change: transform, opacity;
-  transition: opacity 320ms ease;
+  transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 body.ambient-playing .bg-canvas {
-  opacity: 0.92;
+  opacity: 1;
 }
 
 /* Capa de atmósfera y contraste UI sin lag de desenfoque GPU */
 .bg-overlay {
   position: fixed;
-  inset: -5vmax;
+  inset: -6vmax;
   z-index: 0;
   pointer-events: none;
   opacity: 0;
   background:
-    radial-gradient(75% 100% at 5% 50%, rgba(var(--ambient-primary), 0.12) 0%, transparent 68%),
-    radial-gradient(75% 100% at 95% 45%, rgba(var(--ambient-secondary), 0.10) 0%, transparent 68%),
-    radial-gradient(70% 75% at 50% 105%, rgba(var(--ambient-tertiary), 0.09) 0%, transparent 65%);
-  transition: opacity 420ms ease;
+    radial-gradient(85% 90% at 10% 40%, rgba(var(--ambient-primary), 0.16) 0%, transparent 68%),
+    radial-gradient(80% 85% at 90% 45%, rgba(var(--ambient-secondary), 0.14) 0%, transparent 68%),
+    radial-gradient(75% 75% at 50% 100%, rgba(var(--ambient-tertiary), 0.12) 0%, transparent 62%);
+  transition: opacity 500ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 body.ambient-playing .bg-overlay {
@@ -147,15 +150,15 @@ body.ambient-playing .bg-overlay {
   position: absolute;
   inset: -5%;
   background:
-    radial-gradient(ellipse at 35% 35%, rgba(var(--ambient-primary), 0.14) 0%, transparent 60%),
-    radial-gradient(ellipse at 65% 65%, rgba(var(--ambient-tertiary), 0.12) 0%, transparent 60%);
-  opacity: calc(0.20 + var(--ambient-intensity) * 0.20);
+    radial-gradient(ellipse at calc(var(--ambient-pointer-x) * 100%) calc(var(--ambient-pointer-y) * 100%), rgba(var(--ambient-primary), 0.22) 0%, transparent 58%),
+    radial-gradient(ellipse at 70% 30%, rgba(var(--ambient-tertiary), 0.18) 0%, transparent 52%);
+  opacity: calc(0.35 + var(--ambient-intensity) * 0.35);
   transform: translate(var(--ambient-shift-x), var(--ambient-shift-y))
     rotate(var(--ambient-rotate))
     scale(calc(1 + var(--ambient-beat-scale)));
   transform-origin: center;
   will-change: transform, opacity;
-  transition: transform 180ms linear, opacity 180ms linear;
+  transition: transform 180ms linear, opacity 250ms ease;
 }
 
 /* Viñeta de contraste profundo para garantizar legibilidad de la web */
@@ -164,8 +167,26 @@ body.ambient-playing .bg-overlay {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse at 50% 45%, rgba(6, 8, 12, 0.15) 0%, rgba(6, 8, 12, 0.45) 55%, rgba(6, 8, 12, 0.78) 90%, rgba(6, 8, 12, 0.88) 100%),
-    linear-gradient(180deg, rgba(6, 8, 12, 0.20), rgba(6, 8, 12, 0.50));
+    radial-gradient(ellipse 95% 85% at 50% 45%, rgba(6, 8, 12, 0.08) 0%, rgba(6, 8, 12, 0.38) 55%, rgba(6, 8, 12, 0.80) 90%, rgba(6, 8, 12, 0.94) 100%),
+    linear-gradient(180deg, rgba(6, 8, 12, 0.20) 0%, rgba(6, 8, 12, 0.62) 100%);
+}
+
+/* Textura micro-grano anti-banding de lujo */
+.bg-grain {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 160px 160px;
+  transition: opacity 500ms ease;
+}
+
+body.ambient-playing .bg-grain {
+  opacity: 0.038;
 }
 
 /* Reset */
@@ -181,8 +202,8 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   background:
-    radial-gradient(1100px 560px at 12% -12%, #1a1f1c 0%, transparent 58%),
-    radial-gradient(900px 480px at 108% -6%, #15191c 0%, transparent 52%),
+    radial-gradient(1200px 650px at 15% -10%, rgba(var(--ambient-primary), 0.08) 0%, transparent 60%),
+    radial-gradient(1000px 550px at 85% -5%, rgba(var(--ambient-secondary), 0.06) 0%, transparent 55%),
     linear-gradient(180deg, #090a0d 0%, var(--bg) 100%);
   -webkit-font-smoothing: antialiased;
 }
@@ -195,7 +216,7 @@ body {
   }
 
   body.ambient-playing .bg-canvas {
-    opacity: 0.38;
+    opacity: 0.50;
   }
 }
 
@@ -1625,18 +1646,18 @@ h2 {
   pointer-events: none;
   border-radius: 40px;
   background:
-    radial-gradient(48% 44% at 24% 40%, rgba(var(--ambient-primary), 0.24) 0%, transparent 74%),
-    radial-gradient(46% 42% at 76% 40%, rgba(var(--ambient-secondary), 0.20) 0%, transparent 74%);
+    radial-gradient(48% 44% at 24% 40%, rgba(var(--ambient-primary), 0.28) 0%, transparent 74%),
+    radial-gradient(46% 42% at 76% 40%, rgba(var(--ambient-secondary), 0.24) 0%, transparent 74%);
   opacity: 0;
-  filter: blur(82px) saturate(1.08);
+  filter: blur(82px) saturate(1.15);
   transform: translate(var(--ambient-local-x), var(--ambient-local-y))
     scale(calc(1 + var(--ambient-beat-scale)));
   will-change: transform, opacity;
-  transition: transform 170ms linear, opacity 280ms ease;
+  transition: transform 170ms linear, opacity 350ms ease;
 }
 
 body.ambient-playing .now-playing::before {
-  opacity: calc(0.34 + var(--ambient-intensity) * 0.20);
+  opacity: calc(0.40 + var(--ambient-intensity) * 0.25);
 }
 
 .now-playing > * {
@@ -1652,11 +1673,13 @@ body.ambient-playing .now-playing::before {
   border-radius: 30px;
   background: linear-gradient(
     180deg,
-    rgba(11, 12, 16, 0.68),
-    rgba(11, 12, 16, 0.44)
+    rgba(13, 14, 18, 0.72),
+    rgba(11, 12, 16, 0.50)
   );
+  backdrop-filter: blur(28px) saturate(1.2);
+  -webkit-backdrop-filter: blur(28px) saturate(1.2);
   border: 1px solid rgba(255, 255, 255, 0.10);
-  box-shadow: 0 18px 64px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 20px 64px rgba(0, 0, 0, 0.35), 0 0 32px rgba(var(--ambient-primary), 0.04);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1679,7 +1702,7 @@ body.ambient-playing .now-playing::before {
 }
 
 body.ambient-playing .np-controls::before {
-  opacity: calc(0.08 + var(--ambient-intensity) * 0.08);
+  opacity: calc(0.14 + var(--ambient-intensity) * 0.12);
 }
 
 body.ambient-low-power .np-controls::before,
