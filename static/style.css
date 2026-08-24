@@ -62,11 +62,11 @@
   --art-hue: 142;
 }
 
-/* Fondo inmersivo: la carátula aporta identidad, el canvas aporta movimiento orgánico,
-   la capa de grano elimina el banding de color y el overlay asegura contraste WCAG. */
+/* Fondo inmersivo: la carátula aporta identidad tonal suave, el canvas genera la simulación acústica fluida
+   y el overlay asegura un contraste cristalino y cinematográfico sin saturar la vista. */
 .bg-artwork {
   position: fixed;
-  inset: -10vmax;
+  inset: -12vmax;
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
@@ -76,9 +76,9 @@
       var(--ambient-local-y),
       0
     )
-    scale(calc(1.04 + var(--ambient-beat-scale)));
+    scale(calc(1.02 + var(--ambient-beat-scale)));
   transform-origin: center;
-  transition: opacity 700ms cubic-bezier(0.22, 1, 0.36, 1), transform 180ms linear;
+  transition: opacity 800ms cubic-bezier(0.22, 1, 0.36, 1), transform 220ms ease-out;
   will-change: transform, opacity;
 }
 
@@ -90,11 +90,11 @@
   object-fit: cover;
   opacity: 0;
   visibility: hidden;
-  filter: blur(48px) saturate(1.25) contrast(1.05);
-  transform: scale(1.10);
+  filter: blur(64px) saturate(1.18) contrast(1.02);
+  transform: scale(1.12);
   transition:
-    opacity 900ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    visibility 0s linear 900ms;
+    opacity 1000ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    visibility 0s linear 1000ms;
 }
 
 .bg-artwork-layer.is-active {
@@ -104,7 +104,7 @@
 }
 
 body.ambient-playing .bg-artwork.has-artwork {
-  opacity: calc(0.16 + var(--ambient-intensity) * 0.10);
+  opacity: calc(0.10 + var(--ambient-intensity) * 0.08);
 }
 
 .bg-canvas {
@@ -117,28 +117,26 @@ body.ambient-playing .bg-artwork.has-artwork {
   z-index: 0;
   pointer-events: none;
   opacity: 0;
-  transform: scale(1.02);
+  transform: scale(1.01);
   transform-origin: center;
-  will-change: transform, opacity;
-  transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity;
+  transition: opacity 600ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 body.ambient-playing .bg-canvas {
   opacity: 1;
 }
 
-/* Capa de atmósfera y contraste UI sin lag de desenfoque GPU */
+/* Capa de atmósfera y contraste UI para simulación acústica */
 .bg-overlay {
   position: fixed;
-  inset: -6vmax;
+  inset: 0;
   z-index: 0;
   pointer-events: none;
   opacity: 0;
   background:
-    radial-gradient(85% 90% at 10% 40%, rgba(var(--ambient-primary), 0.16) 0%, transparent 68%),
-    radial-gradient(80% 85% at 90% 45%, rgba(var(--ambient-secondary), 0.14) 0%, transparent 68%),
-    radial-gradient(75% 75% at 50% 100%, rgba(var(--ambient-tertiary), 0.12) 0%, transparent 62%);
-  transition: opacity 500ms cubic-bezier(0.22, 1, 0.36, 1);
+    radial-gradient(120% 100% at 50% 50%, transparent 40%, rgba(6, 8, 12, 0.55) 80%, rgba(6, 8, 12, 0.88) 100%);
+  transition: opacity 600ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 body.ambient-playing .bg-overlay {
@@ -148,27 +146,27 @@ body.ambient-playing .bg-overlay {
 .bg-overlay::before {
   content: "";
   position: absolute;
-  inset: -5%;
+  inset: -10%;
   background:
-    radial-gradient(ellipse at calc(var(--ambient-pointer-x) * 100%) calc(var(--ambient-pointer-y) * 100%), rgba(var(--ambient-primary), 0.22) 0%, transparent 58%),
-    radial-gradient(ellipse at 70% 30%, rgba(var(--ambient-tertiary), 0.18) 0%, transparent 52%);
-  opacity: calc(0.35 + var(--ambient-intensity) * 0.35);
-  transform: translate(var(--ambient-shift-x), var(--ambient-shift-y))
-    rotate(var(--ambient-rotate))
-    scale(calc(1 + var(--ambient-beat-scale)));
+    radial-gradient(ellipse 65% 55% at calc(var(--ambient-pointer-x) * 100%) calc(var(--ambient-pointer-y) * 100%), rgba(var(--ambient-primary), 0.14) 0%, transparent 60%),
+    radial-gradient(ellipse 55% 45% at 75% 25%, rgba(var(--ambient-accent), 0.10) 0%, transparent 55%);
+  opacity: calc(0.30 + var(--ambient-intensity) * 0.30);
+  transform: translate(calc(var(--ambient-shift-x) * 0.4), calc(var(--ambient-shift-y) * 0.4))
+    rotate(calc(var(--ambient-rotate) * 0.5))
+    scale(calc(1 + var(--ambient-beat-scale) * 0.5));
   transform-origin: center;
   will-change: transform, opacity;
-  transition: transform 180ms linear, opacity 250ms ease;
+  transition: transform 200ms linear, opacity 300ms ease;
 }
 
-/* Viñeta de contraste profundo para garantizar legibilidad de la web */
+/* Viñeta de contraste profundo y protección del texto del reproductor */
 .bg-overlay::after {
   content: "";
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 95% 85% at 50% 45%, rgba(6, 8, 12, 0.08) 0%, rgba(6, 8, 12, 0.38) 55%, rgba(6, 8, 12, 0.80) 90%, rgba(6, 8, 12, 0.94) 100%),
-    linear-gradient(180deg, rgba(6, 8, 12, 0.20) 0%, rgba(6, 8, 12, 0.62) 100%);
+    radial-gradient(ellipse 90% 80% at 50% 45%, rgba(6, 8, 12, 0.05) 0%, rgba(6, 8, 12, 0.32) 60%, rgba(6, 8, 12, 0.76) 92%, rgba(6, 8, 12, 0.92) 100%),
+    linear-gradient(180deg, rgba(6, 8, 12, 0.12) 0%, rgba(6, 8, 12, 0.50) 100%);
 }
 
 /* Textura micro-grano anti-banding de lujo */
@@ -186,7 +184,7 @@ body.ambient-playing .bg-overlay {
 }
 
 body.ambient-playing .bg-grain {
-  opacity: 0.038;
+  opacity: 0.032;
 }
 
 /* Reset */

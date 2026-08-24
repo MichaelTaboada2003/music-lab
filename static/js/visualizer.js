@@ -1,6 +1,6 @@
 // ============================================================
-// visualizer.js — Motor Visual de Iluminación Acústica Inmersiva (Web Audio API)
-// 100% Reactivo al Audio • Sin Estrellas ni Rayas • Apagado en Pausa • 60 FPS
+// visualizer.js — Motor de Simulación Acústica Fluida & Orgánica (Web Audio API)
+// Ondas de Presión Sonora • Cintas Armónicas • Nódulos Cimáticos • 60 FPS • 0% CPU en Pausa
 // ============================================================
 
 import { audioPlayer } from "./player.js";
@@ -25,17 +25,6 @@ const DEGRADED_FPS = 30;
 const CSS_UPDATE_INTERVAL = LOW_POWER_MODE ? 60 : 33;
 const BASE_PIXEL_BUDGET = LOW_POWER_MODE ? 800_000 : 1_800_000;
 const MOBILE_PIXEL_BUDGET = LOW_POWER_MODE ? 450_000 : 950_000;
-
-// ------------------------------------------------------------
-// MODOS DE ILUMINACIÓN ESCÉNICA (Asignados por Canción)
-// ------------------------------------------------------------
-const STAGE_LIGHT_MODES = [
-  { id: "fluid_aura", name: "Aura Líquida de Escenario", focusX: 0.38, focusY: 0.42, spread: 1.5, drift: 1.0 },
-  { id: "volumetric_beams", name: "Haces de Luz Volumétricos", focusX: 0.50, focusY: 0.38, spread: 2.0, drift: 1.4 },
-  { id: "chromatic_caustics", name: "Cáusticas de Luz Armónica", focusX: 0.44, focusY: 0.52, spread: 1.6, drift: 0.9 },
-  { id: "resonant_chamber", name: "Cámara de Luz Resonante", focusX: 0.55, focusY: 0.40, spread: 1.8, drift: 1.2 },
-  { id: "kinetic_waves", name: "Ondas Cinéticas de Escenario", focusX: 0.48, focusY: 0.46, spread: 1.7, drift: 1.5 },
-];
 
 // Estado del Web Audio API
 let audioCtx = null;
@@ -63,37 +52,83 @@ let quality = 1;
 let qualityCheckAt = 0;
 let isAudioActive = false;
 
-// Estado del puntero para paralaje
+// Estado del puntero para interacción acústica fluida
 const pointer = {
   x: 0.5,
   y: 0.5,
   targetX: 0.5,
   targetY: 0.5,
+  vx: 0,
+  vy: 0,
 };
 
 // ------------------------------------------------------------
-// NODOS DE LUZ ACÚSTICA MULTICAPA (Proyecciones de Espectro)
+// SISTEMA DE SIMULACIÓN ACÚSTICA: MEMBRANAS Y ONDAS FLUIDAS
 // ------------------------------------------------------------
-const NUM_LIGHT_NODES = LOW_POWER_MODE ? 4 : 6;
-const lightNodes = [];
 
-function _initLightNodes() {
-  lightNodes.length = 0;
-  for (let i = 0; i < NUM_LIGHT_NODES; i++) {
-    lightNodes.push({
-      baseX: 0.2 + (i / Math.max(1, NUM_LIGHT_NODES - 1)) * 0.60,
-      baseY: 0.25 + (i % 2) * 0.40,
-      currentX: 0.5,
-      currentY: 0.5,
-      baseRadiusScale: 0.45 + (i % 3) * 0.18,
-      speed: 0.45 + i * 0.18,
-      phaseX: i * 1.5,
-      phaseY: i * 2.2 + 1.0,
+// Cintas de Ondas de Presión Sonora
+const NUM_WAVE_RIBBONS = LOW_POWER_MODE ? 4 : 6;
+const waveRibbons = [];
+
+function _initWaveRibbons() {
+  waveRibbons.length = 0;
+  for (let i = 0; i < NUM_WAVE_RIBBONS; i++) {
+    waveRibbons.push({
+      baseY: 0.22 + (i / Math.max(1, NUM_WAVE_RIBBONS - 1)) * 0.58,
+      thickness: 0.16 + (i % 2) * 0.08,
+      phase: i * 1.35,
+      phase2: i * 2.1 + 0.8,
+      baseSpeed: 0.45 + (i * 0.12),
+      reactivity: 0.85 + (i % 3) * 0.35,
+      harmonics: 2 + (i % 3),
+      freqBandStart: Math.min(14, i * 2),
       colorIndex: i % 4, // 0: primary, 1: secondary, 2: tertiary, 3: accent
-      driftAmpX: 0.18 + (i % 2) * 0.08,
-      driftAmpY: 0.14 + (i % 3) * 0.06,
+      flowDirection: i % 2 === 0 ? 1 : -1,
+      roughness: 0.08 + (i % 3) * 0.04,
     });
   }
+}
+
+// Nódulos de Resonancia Cimática (Vórtices de Presión Sonora)
+const NUM_CYMATIC_NODES = LOW_POWER_MODE ? 3 : 5;
+const cymaticNodes = [];
+
+function _initCymaticNodes() {
+  cymaticNodes.length = 0;
+  for (let i = 0; i < NUM_CYMATIC_NODES; i++) {
+    cymaticNodes.push({
+      baseX: 0.20 + (i / Math.max(1, NUM_CYMATIC_NODES - 1)) * 0.60,
+      baseY: 0.30 + (i % 2 === 0 ? 0.15 : 0.48),
+      currentX: 0.5,
+      currentY: 0.5,
+      phaseX: i * 1.618,
+      phaseY: i * 2.414 + 1.2,
+      orbitSpeed: 0.32 + i * 0.10,
+      radiusScale: 0.32 + (i % 3) * 0.14,
+      freqIndex: Math.min(15, i * 3 + 1),
+      colorIndex: (i + 1) % 4,
+      petals: 3 + (i % 4), // Simetría armónica cimática
+    });
+  }
+}
+
+// Ondas de Choque Acústicas Expansivas (Shockwaves / Solitones)
+const MAX_RIPPLES = 8;
+const acousticRipples = [];
+
+function _spawnAcousticRipple(x, y, power, color) {
+  if (acousticRipples.length >= MAX_RIPPLES) acousticRipples.shift();
+  acousticRipples.push({
+    x,
+    y,
+    radius: 10,
+    maxRadius: Math.max(window.innerWidth, window.innerHeight) * (0.55 + power * 0.45),
+    speed: 380 + power * 420,
+    alpha: 0.65 + power * 0.35,
+    power,
+    color,
+    phaseOffset: Math.random() * Math.PI * 2,
+  });
 }
 
 // ------------------------------------------------------------
@@ -114,10 +149,11 @@ const visual = {
   seed: _hashString(DEFAULT_SONG_KEY),
   palette: _clonePalette(initialPalette),
   targetPalette: _clonePalette(initialPalette),
-  mode: STAGE_LIGHT_MODES[0],
+  fluidTime: 0,
 };
 
-_initLightNodes();
+_initWaveRibbons();
+_initCymaticNodes();
 
 // ------------------------------------------------------------
 // UTILIDADES MATEMÁTICAS Y DE COLOR
@@ -140,6 +176,29 @@ function _smooth(current, target, attack, release, dt) {
   return current + (target - current) * (1 - Math.exp(-rate * dt));
 }
 
+function _rgbToHsl(r, g, b) {
+  const normR = r / 255;
+  const normG = g / 255;
+  const normB = b / 255;
+  const max = Math.max(normR, normG, normB);
+  const min = Math.min(normR, normG, normB);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case normR: h = ((normG - normB) / d + (normG < normB ? 6 : 0)) / 6; break;
+      case normG: h = ((normB - normR) / d + 2) / 6; break;
+      case normB: h = ((normR - normG) / d + 4) / 6; break;
+    }
+    h *= 360;
+  }
+  return [h, s * 100, l * 100];
+}
+
 function _hslToRgb(h, s, l) {
   const hue = ((h % 360) + 360) % 360;
   const sat = _clamp(s, 0, 100) / 100;
@@ -159,6 +218,13 @@ function _hslToRgb(h, s, l) {
   return rgb.map((channel) => Math.round((channel + offset) * 255));
 }
 
+function _enhanceColorVibrancy(rgb, minSat = 72, targetLight = 54) {
+  const [h, s, l] = _rgbToHsl(rgb[0], rgb[1], rgb[2]);
+  const newSat = Math.max(s * 1.15, minSat);
+  const newLight = _clamp(Math.max(l, targetLight), 36, 68);
+  return _hslToRgb(h, newSat, newLight);
+}
+
 function _mixColor(from, to, amount) {
   return from.map((channel, index) => Math.round(channel + (to[index] - channel) * amount));
 }
@@ -174,27 +240,28 @@ function _clonePalette(palette) {
 function _buildFallbackPalette(songKey) {
   const seed = _hashString(songKey);
   const hue = seed % 360;
-  const shiftA = 45 + (seed % 40);
-  const shiftB = 120 + (seed % 60);
+  const shiftA = 40 + (seed % 35);
+  const shiftB = 110 + (seed % 50);
 
   return {
-    primary: _hslToRgb(hue, 90, 60),
-    secondary: _hslToRgb(hue + shiftA, 88, 62),
-    tertiary: _hslToRgb(hue + shiftB, 82, 58),
-    accent: _hslToRgb(hue + 180, 92, 70),
-    shadow: _hslToRgb(hue + 15, 45, 6),
+    primary: _hslToRgb(hue, 92, 58),
+    secondary: _hslToRgb(hue + shiftA, 88, 60),
+    tertiary: _hslToRgb(hue + shiftB, 84, 56),
+    accent: _hslToRgb(hue + 180, 94, 68),
+    shadow: _hslToRgb(hue + 20, 50, 7),
   };
 }
 
 function _paletteFromArtwork(colors) {
-  const [primary, secondary, tertiary] = colors;
-  return {
-    primary: _mixColor(primary, [255, 255, 255], 0.12),
-    secondary: _mixColor(secondary, [255, 255, 255], 0.10),
-    tertiary: _mixColor(tertiary, [255, 255, 255], 0.14),
-    accent: _mixColor(secondary, tertiary, 0.5),
-    shadow: _mixColor(primary, [3, 5, 9], 0.90),
-  };
+  const [c0, c1, c2] = colors;
+  const primary = _enhanceColorVibrancy(c0, 78, 56);
+  const secondary = _enhanceColorVibrancy(c1 || c0, 75, 58);
+  const tertiary = _enhanceColorVibrancy(c2 || c1 || c0, 70, 52);
+  const [h] = _rgbToHsl(primary[0], primary[1], primary[2]);
+  const accent = _hslToRgb(h + 160, 90, 66);
+  const shadow = _mixColor(primary, [4, 6, 10], 0.92);
+
+  return { primary, secondary, tertiary, accent, shadow };
 }
 
 function _songKeyFromDetail(detail) {
@@ -216,10 +283,6 @@ function _setSong(detail) {
   const palette = _buildFallbackPalette(songKey);
   visual.targetPalette = palette;
   visual.seed = _hashString(songKey);
-
-  // ASIGNAR MODO DE ILUMINACIÓN DE ESCENARIO ÚNICO POR CANCIÓN
-  const modeIndex = visual.seed % STAGE_LIGHT_MODES.length;
-  visual.mode = STAGE_LIGHT_MODES[modeIndex];
 
   _applyPaletteVariables(palette);
   if (detail?.coverUrl) _setArtwork(detail.coverUrl);
@@ -252,14 +315,14 @@ function _setArtwork(url) {
 }
 
 function _lerpPalette(dt) {
-  const amount = 1 - Math.exp(-3.0 * dt);
+  const amount = 1 - Math.exp(-2.8 * dt);
   for (const key of Object.keys(visual.palette)) {
     visual.palette[key] = _mixColor(visual.palette[key], visual.targetPalette[key], amount);
   }
 }
 
 function _getColorByIndex(index) {
-  switch (index) {
+  switch (index % 4) {
     case 0: return visual.palette.primary;
     case 1: return visual.palette.secondary;
     case 2: return visual.palette.tertiary;
@@ -316,7 +379,7 @@ function initAudioVisualizer() {
     audioCtx = new AudioContext();
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 512;
-    analyser.smoothingTimeConstant = 0.75;
+    analyser.smoothingTimeConstant = 0.76;
     frequencyData = new Uint8Array(analyser.frequencyBinCount);
     timeData = new Uint8Array(analyser.frequencyBinCount);
     previousSpectrum = new Float32Array(analyser.frequencyBinCount);
@@ -328,7 +391,7 @@ function initAudioVisualizer() {
     gainNode.connect(analyser);
     analyser.connect(audioCtx.destination);
   } catch {
-    // Si la captura falla por políticas de navegador, continúa de forma autónoma
+    // Si la captura falla por políticas de navegador, continúa en modo fluido autónomo
   }
 }
 
@@ -360,6 +423,7 @@ function _stopVisualizer() {
   visual.rms = 0;
   visual.energy = 0;
   visual.pulse = 0;
+  acousticRipples.length = 0;
 
   _clearCanvas();
 }
@@ -431,7 +495,7 @@ function _readAudio(dt) {
   for (let i = 0; i < 16; i++) {
     const bandVal = _bandAverage(frequencyData, i * binStep, (i + 1) * binStep);
     targetBands[i] = bandVal;
-    spectrumBands[i] = _smooth(spectrumBands[i], targetBands[i], 22, 7.0, dt);
+    spectrumBands[i] = _smooth(spectrumBands[i], targetBands[i], 22, 6.5, dt);
   }
 
   visual.bass = _smooth(visual.bass, bass, 20, 5.0, dt);
@@ -443,7 +507,7 @@ function _readAudio(dt) {
   visual.flux = _smooth(visual.flux, flux, 22, 10, dt);
 
   const energy = _clamp(
-    (visual.bass * 1.8 + visual.lowMid * 1.2 + visual.highMid * 1.0 + visual.air * 0.8 + visual.rms * 1.5) / 5.8,
+    (visual.bass * 1.9 + visual.lowMid * 1.3 + visual.highMid * 1.1 + visual.air * 0.8 + visual.rms * 1.5) / 6.0,
     0,
     1
   );
@@ -452,166 +516,247 @@ function _readAudio(dt) {
 }
 
 // ------------------------------------------------------------
-// CAPA 1: FONDO CÓSMICO PROFUNDO BASE
+// CAPA 1: MAR DE FONDO FLUIDO Y RESONANTE
 // ------------------------------------------------------------
-function _drawAtmosphericBase(width, height) {
+function _drawAtmosphericFluidBase(width, height, time) {
   const grad = ctx.createLinearGradient(0, 0, width, height);
-  grad.addColorStop(0, _rgba(visual.palette.shadow, 0.72));
-  grad.addColorStop(0.5, _rgba([6, 8, 12], 0.84));
-  grad.addColorStop(1, _rgba(visual.palette.shadow, 0.78));
+  const waveShift = Math.sin(time * 0.25) * 0.08;
+  
+  grad.addColorStop(0, _rgba(visual.palette.shadow, 0.85));
+  grad.addColorStop(0.45 + waveShift, _rgba([7, 9, 14], 0.90));
+  grad.addColorStop(1, _rgba(visual.palette.shadow, 0.88));
+
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, width, height);
 }
 
 // ------------------------------------------------------------
-// CAPA 2: NÚCLEO Y VELOS DE LUZ ACÚSTICA (100% Reactivo a la Música)
+// CAPA 2: CINTAS DE ONDAS ACÚSTICAS FLUIDAS (Harmonic Wave Ribbons)
 // ------------------------------------------------------------
-function _drawAcousticLightAtmosphere(width, height, short, time, motionScale) {
-  ctx.globalCompositeOperation = "screen";
-
-  const mode = visual.mode;
+function _drawHarmonicWaveRibbons(width, height, time, dt, motionScale) {
+  const steps = LOW_POWER_MODE ? 40 : 64;
+  const dx = width / steps;
   const energy = visual.energy;
   const bass = visual.bass;
-  const lowMid = visual.lowMid;
-  const highMid = visual.highMid;
-  const air = visual.air;
+  const pulse = visual.pulse;
 
-  const focusX = width * mode.focusX + (pointer.x - 0.5) * width * 0.12 * motionScale;
-  const focusY = height * mode.focusY + (pointer.y - 0.5) * height * 0.10 * motionScale;
+  ctx.globalCompositeOperation = "screen";
 
-  // 1. Nodos de Luz Fluida en Movimiento Armónico (Mapeados a las frecuencias)
-  lightNodes.forEach((node, idx) => {
-    const t = time * node.speed * mode.drift * (0.6 + energy * 0.9) * motionScale;
-    const wanderX = Math.sin(t + node.phaseX) * node.driftAmpX * width;
-    const wanderY = Math.cos(t * 0.85 + node.phaseY) * node.driftAmpY * height;
+  waveRibbons.forEach((ribbon, idx) => {
+    // Acumulación continua de fase fluida (física de ondas sin saltos)
+    ribbon.phase += dt * (ribbon.baseSpeed + energy * ribbon.reactivity * 1.4) * ribbon.flowDirection * motionScale;
+    ribbon.phase2 += dt * (ribbon.baseSpeed * 0.65 + bass * 0.8) * motionScale;
 
-    node.currentX = width * node.baseX + wanderX + (pointer.x - 0.5) * 40;
-    node.currentY = height * node.baseY + wanderY + (pointer.y - 0.5) * 30;
+    const bandVal = spectrumBands[ribbon.freqBandStart] || energy;
+    const color = _getColorByIndex(ribbon.colorIndex);
+    const alphaBase = 0.12 + (idx < 2 ? bass * 0.22 : visual.lowMid * 0.18) + pulse * 0.10;
+    const alpha = _clamp(alphaBase * (0.45 + energy * 0.85), 0.04, 0.55);
 
-    // Modulación del radio por frecuencias:
-    // Nodos 0-1: Graves / Sub-bass
-    // Nodos 2-3: Medios / Vocales
-    // Nodos 4-5: Agudos / Aire
-    const freqBoost = idx < 2 ? bass * 0.45 : idx < 4 ? lowMid * 0.38 : highMid * 0.32;
-    const baseRad = short * node.baseRadiusScale;
-    const radius = baseRad * (1.0 + energy * 1.2 + freqBoost + visual.pulse * 0.6);
+    const centerY = height * ribbon.baseY + (pointer.y - 0.5) * height * 0.08 * motionScale;
+    const amp1 = height * (0.04 + (idx < 2 ? bass * 0.14 : visual.highMid * 0.10) + pulse * 0.05);
+    const amp2 = height * (0.02 + bandVal * 0.08);
+    const thickness = height * ribbon.thickness * (0.85 + energy * 0.65 + pulse * 0.35);
 
-    const color = _getColorByIndex(node.colorIndex);
-    const alphaBase = 0.16 + (idx < 2 ? bass * 0.28 : lowMid * 0.22) + visual.pulse * 0.14;
-    const alpha = _clamp(alphaBase * (0.5 + energy * 0.9), 0.05, 0.65);
+    // Trazar curva superior
+    ctx.beginPath();
+    let prevX = 0;
+    let prevY = centerY;
 
-    // Ondulación elíptica armónica que respira con la música
-    const morphX = 1 + Math.sin(time * 2.2 + node.phaseX) * (0.10 + bass * 0.20);
-    const morphY = 1 - Math.sin(time * 1.8 + node.phaseY) * (0.08 + lowMid * 0.15);
+    for (let s = 0; s <= steps; s++) {
+      const x = s * dx;
+      const nx = x / width;
+      
+      // Armónicos compuestos de Fourier modulados por sonido
+      const w1 = Math.sin(nx * Math.PI * ribbon.harmonics + ribbon.phase);
+      const w2 = Math.cos(nx * Math.PI * (ribbon.harmonics * 1.6) + ribbon.phase2 + (pointer.x - 0.5) * 2);
+      const w3 = Math.sin(nx * Math.PI * 4.2 - time * 0.8) * ribbon.roughness;
+      
+      const waveOffset = (w1 * 0.65 + w2 * 0.35 + w3) * (amp1 + amp2);
+      const y = centerY + waveOffset;
 
-    ctx.save();
-    ctx.translate(node.currentX, node.currentY);
-    ctx.rotate(time * 0.15 * (idx % 2 === 0 ? 1 : -1) + node.phaseX);
-    ctx.scale(morphX, morphY);
+      if (s === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        const cx = (prevX + x) / 2;
+        const cy = (prevY + y) / 2;
+        ctx.quadraticCurveTo(prevX, prevY, cx, cy);
+      }
+      prevX = x;
+      prevY = y;
+    }
+    ctx.lineTo(width, prevY);
 
-    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, radius);
-    grad.addColorStop(0, _rgba(color, alpha));
-    grad.addColorStop(0.35, _rgba(color, alpha * 0.60));
-    grad.addColorStop(0.70, _rgba(color, alpha * 0.15));
+    // Trazar curva inferior para cerrar el volumen fluido de la cinta
+    for (let s = steps; s >= 0; s--) {
+      const x = s * dx;
+      const nx = x / width;
+      
+      const w1 = Math.sin(nx * Math.PI * ribbon.harmonics + ribbon.phase + 0.4);
+      const w2 = Math.cos(nx * Math.PI * (ribbon.harmonics * 1.6) + ribbon.phase2 - 0.3);
+      const waveOffset = (w1 * 0.60 + w2 * 0.40) * (amp1 + amp2 * 0.8);
+      const y = centerY + waveOffset + thickness;
+
+      if (s === steps) {
+        ctx.lineTo(x, y);
+      } else {
+        const cx = (prevX + x) / 2;
+        const cy = (prevY + y) / 2;
+        ctx.quadraticCurveTo(prevX, prevY, cx, cy);
+      }
+      prevX = x;
+      prevY = y;
+    }
+    ctx.closePath();
+
+    // Gradiente lumínico vertical del fluido
+    const grad = ctx.createLinearGradient(0, centerY - amp1, 0, centerY + thickness + amp1);
+    grad.addColorStop(0, _rgba(color, 0));
+    grad.addColorStop(0.35, _rgba(color, alpha));
+    grad.addColorStop(0.70, _rgba(_mixColor(color, visual.palette.accent, 0.4), alpha * 0.7));
     grad.addColorStop(1, _rgba(color, 0));
 
     ctx.fillStyle = grad;
+    ctx.fill();
+  });
+}
+
+// ------------------------------------------------------------
+// CAPA 3: NÓDULOS DE RESONANCIA CIMÁTICA (Cymatic Pressure Vortices)
+// ------------------------------------------------------------
+function _drawCymaticPressureNodes(width, height, short, time, dt, motionScale) {
+  ctx.globalCompositeOperation = "screen";
+  const energy = visual.energy;
+  const bass = visual.bass;
+
+  cymaticNodes.forEach((node, idx) => {
+    // Órbita fluida con inercia elíptica
+    const orbitT = time * node.orbitSpeed * (0.7 + energy * 0.6) * motionScale;
+    const wanderX = Math.sin(orbitT + node.phaseX) * width * 0.16;
+    const wanderY = Math.cos(orbitT * 0.85 + node.phaseY) * height * 0.14;
+
+    node.currentX = width * node.baseX + wanderX + (pointer.x - 0.5) * 60;
+    node.currentY = height * node.baseY + wanderY + (pointer.y - 0.5) * 50;
+
+    const bandEnergy = spectrumBands[node.freqIndex] || energy;
+    const baseRadius = short * node.radiusScale * (0.85 + bandEnergy * 0.75 + visual.pulse * 0.45);
+    const color = _getColorByIndex(node.colorIndex);
+    const nodeAlpha = _clamp((0.14 + bandEnergy * 0.26 + visual.pulse * 0.12) * (0.5 + energy * 0.8), 0.03, 0.52);
+
+    // Dibujar patrón de interferencia acústica con forma de flor cimática
+    ctx.save();
+    ctx.translate(node.currentX, node.currentY);
+    ctx.rotate(time * 0.18 * (idx % 2 === 0 ? 1 : -1) + node.phaseX);
+
+    const petals = node.petals;
+    const points = LOW_POWER_MODE ? 32 : 48;
     ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+
+    for (let p = 0; p <= points; p++) {
+      const angle = (p / points) * Math.PI * 2;
+      const mod = 1 + Math.sin(angle * petals + time * 1.5) * (0.12 + bass * 0.18);
+      const r = baseRadius * mod;
+      const px = Math.cos(angle) * r;
+      const py = Math.sin(angle) * r;
+
+      if (p === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+
+    const radGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, baseRadius * 1.2);
+    radGrad.addColorStop(0, _rgba(color, nodeAlpha));
+    radGrad.addColorStop(0.40, _rgba(color, nodeAlpha * 0.55));
+    radGrad.addColorStop(0.80, _rgba(color, nodeAlpha * 0.12));
+    radGrad.addColorStop(1, _rgba(color, 0));
+
+    ctx.fillStyle = radGrad;
     ctx.fill();
     ctx.restore();
   });
+}
 
-  // 2. Haces de Luz Volumétrica (Se abren y giran al subir la potencia del audio)
-  if (!LOW_POWER_MODE && mode.id === "volumetric_beams") {
-    const beamCount = 8;
-    const beamLength = Math.max(width, height) * (0.65 + energy * 0.45);
-    for (let b = 0; b < beamCount; b++) {
-      const angle = (b / beamCount) * Math.PI * 2 + time * 0.12 * motionScale;
-      const beamGrad = ctx.createLinearGradient(focusX, focusY, focusX + Math.cos(angle) * beamLength, focusY + Math.sin(angle) * beamLength);
-      const bColor = _getColorByIndex(b % 4);
-      const bAlpha = _clamp((0.10 + bass * 0.18 + visual.pulse * 0.16) * (0.5 + energy * 0.8), 0.02, 0.42);
+// ------------------------------------------------------------
+// CAPA 4: ONDAS DE CHOQUE ACÚSTICAS EN TRANSITORIOS (Acoustic Ripples)
+// ------------------------------------------------------------
+function _updateAndDrawAcousticRipples(width, height, dt) {
+  if (!acousticRipples.length) return;
+  ctx.globalCompositeOperation = "screen";
 
-      beamGrad.addColorStop(0, _rgba(bColor, bAlpha));
-      beamGrad.addColorStop(0.50, _rgba(bColor, bAlpha * 0.40));
-      beamGrad.addColorStop(1, _rgba(bColor, 0));
+  for (let i = acousticRipples.length - 1; i >= 0; i--) {
+    const ripple = acousticRipples[i];
+    ripple.radius += ripple.speed * dt;
+    ripple.alpha *= Math.exp(-2.2 * dt);
 
-      ctx.save();
-      ctx.translate(focusX, focusY);
-      ctx.rotate(angle);
-      ctx.fillStyle = beamGrad;
-      ctx.beginPath();
-      ctx.moveTo(0, -short * 0.04);
-      ctx.lineTo(beamLength, -short * (0.08 + bass * 0.08));
-      ctx.lineTo(beamLength, short * (0.08 + bass * 0.08));
-      ctx.lineTo(0, short * 0.04);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
+    if (ripple.radius >= ripple.maxRadius || ripple.alpha < 0.01) {
+      acousticRipples.splice(i, 1);
+      continue;
     }
-  }
 
-  // 3. Resplandor de Agudos & Brillo Espectral
-  if (air > 0.15) {
-    const airRadius = short * (0.45 + air * 0.40);
-    const airColor = _mixColor(visual.palette.accent, [255, 255, 255], 0.35);
-    const airGrad = ctx.createRadialGradient(focusX, focusY, 0, focusX, focusY, airRadius);
-    const airAlpha = _clamp(air * 0.22, 0.02, 0.25);
+    const grad = ctx.createRadialGradient(
+      ripple.x,
+      ripple.y,
+      Math.max(0, ripple.radius - 60),
+      ripple.x,
+      ripple.y,
+      ripple.radius
+    );
+    
+    grad.addColorStop(0, _rgba(ripple.color, 0));
+    grad.addColorStop(0.65, _rgba(ripple.color, ripple.alpha * 0.45));
+    grad.addColorStop(0.85, _rgba([255, 255, 255], ripple.alpha * 0.65));
+    grad.addColorStop(1, _rgba(ripple.color, 0));
 
-    airGrad.addColorStop(0, _rgba(airColor, airAlpha));
-    airGrad.addColorStop(0.50, _rgba(visual.palette.tertiary, airAlpha * 0.40));
-    airGrad.addColorStop(1, _rgba(visual.palette.tertiary, 0));
-
-    ctx.fillStyle = airGrad;
+    ctx.save();
+    ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(focusX, focusY, airRadius, 0, Math.PI * 2);
+    ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 }
 
 // ------------------------------------------------------------
-// CAPA 3: RÁFAGA DE LUZ EN GOLPES DE RITMO (BEAT FLASH BLOOM)
-// Explosión de luz expansiva en bombos y drops (100% lumínico, 0 rayas)
+// CAPA 5: FILAMENTOS DE LUZ Y AGUDOS ARMÓNICOS (Caustics)
 // ------------------------------------------------------------
-function _drawAcousticBeatBloom(width, height, short) {
-  if (visual.pulse < 0.02) return;
-  const cx = width * pointer.x;
-  const cy = height * pointer.y;
-  const radius = short * (0.42 + visual.pulse * 0.60);
-  const color = _mixColor(visual.palette.accent, [255, 255, 255], 0.45);
-
-  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-  grad.addColorStop(0, _rgba(color, visual.pulse * 0.30));
-  grad.addColorStop(0.35, _rgba(visual.palette.primary, visual.pulse * 0.15));
-  grad.addColorStop(0.70, _rgba(visual.palette.secondary, visual.pulse * 0.05));
-  grad.addColorStop(1, _rgba(visual.palette.secondary, 0));
-
-  ctx.save();
+function _drawHarmonicCaustics(width, height, short, time, motionScale) {
+  if (visual.air < 0.14 && visual.highMid < 0.16) return;
   ctx.globalCompositeOperation = "screen";
+
+  const airPower = Math.max(visual.air, visual.highMid);
+  const fx = width * 0.5 + (pointer.x - 0.5) * width * 0.2 * motionScale;
+  const fy = height * 0.42 + (pointer.y - 0.5) * height * 0.15 * motionScale;
+  const radius = short * (0.38 + airPower * 0.42);
+  const color = _mixColor(visual.palette.accent, [255, 255, 255], 0.40);
+  const alpha = _clamp(airPower * 0.24, 0.02, 0.30);
+
+  const grad = ctx.createRadialGradient(fx, fy, 0, fx, fy, radius);
+  grad.addColorStop(0, _rgba(color, alpha));
+  grad.addColorStop(0.45, _rgba(visual.palette.tertiary, alpha * 0.40));
+  grad.addColorStop(1, _rgba(visual.palette.tertiary, 0));
+
   ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.arc(fx, fy, radius, 0, Math.PI * 2);
   ctx.fill();
-  ctx.restore();
 }
 
 // ------------------------------------------------------------
-// CAPA 4: VIÑETA DE CONTRASTE & LEGIBILIDAD UI
+// CAPA 6: VIÑETA CINEMÁTICA Y CONTRASTE DE INTERFAZ
 // ------------------------------------------------------------
-function _drawCenterVignette(width, height) {
+function _drawCinematicVignette(width, height) {
   const maxDim = Math.max(width, height);
   const grad = ctx.createRadialGradient(
     width * 0.5,
     height * 0.5,
-    height * 0.16,
+    height * 0.18,
     width * 0.5,
     height * 0.5,
-    maxDim * 0.72
+    maxDim * 0.70
   );
-  grad.addColorStop(0, "rgba(6, 8, 12, 0.10)");
-  grad.addColorStop(0.50, "rgba(6, 8, 12, 0.38)");
-  grad.addColorStop(1, "rgba(6, 8, 12, 0.85)");
+  grad.addColorStop(0, "rgba(7, 9, 14, 0.02)");
+  grad.addColorStop(0.50, "rgba(7, 9, 14, 0.32)");
+  grad.addColorStop(1, "rgba(7, 9, 14, 0.84)");
 
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = grad;
@@ -626,11 +771,11 @@ function _updateCss(time, motionScale) {
   pointer.y += (pointer.targetY - pointer.y) * 0.08;
 
   const energy = visual.energy;
-  const driftX = Math.sin(time * 0.22) * (18 + energy * 36) * motionScale + (pointer.x - 0.5) * 50;
-  const driftY = Math.cos(time * 0.18) * (15 + energy * 28) * motionScale + (pointer.y - 0.5) * 40;
-  const intensity = _clamp(0.25 + energy * 0.60 + visual.flux * 0.15, 0.20, 0.90);
-  const beatScale = _clamp(visual.pulse * 0.038, 0, 0.06);
-  const rotation = Math.sin(time * 0.10) * 4 + (pointer.x - 0.5) * 5;
+  const driftX = Math.sin(time * 0.20) * (14 + energy * 26) * motionScale + (pointer.x - 0.5) * 40;
+  const driftY = Math.cos(time * 0.16) * (12 + energy * 20) * motionScale + (pointer.y - 0.5) * 32;
+  const intensity = _clamp(0.28 + energy * 0.62 + visual.flux * 0.14, 0.20, 0.95);
+  const beatScale = _clamp(visual.pulse * 0.032, 0, 0.05);
+  const rotation = Math.sin(time * 0.08) * 3 + (pointer.x - 0.5) * 4;
 
   const targets = [ambientOverlay, ambientArtwork, nowPlaying].filter(Boolean);
   targets.forEach((target) => {
@@ -638,8 +783,8 @@ function _updateCss(time, motionScale) {
     target.style.setProperty("--ambient-beat-scale", beatScale.toFixed(3));
     target.style.setProperty("--ambient-shift-x", `${driftX.toFixed(1)}px`);
     target.style.setProperty("--ambient-shift-y", `${driftY.toFixed(1)}px`);
-    target.style.setProperty("--ambient-local-x", `${(driftX * 0.20).toFixed(1)}px`);
-    target.style.setProperty("--ambient-local-y", `${(driftY * 0.15).toFixed(1)}px`);
+    target.style.setProperty("--ambient-local-x", `${(driftX * 0.18).toFixed(1)}px`);
+    target.style.setProperty("--ambient-local-y", `${(driftY * 0.14).toFixed(1)}px`);
     target.style.setProperty("--ambient-rotate", `${rotation.toFixed(2)}deg`);
     target.style.setProperty("--ambient-pointer-x", pointer.x.toFixed(3));
     target.style.setProperty("--ambient-pointer-y", pointer.y.toFixed(3));
@@ -687,31 +832,39 @@ function drawVisualizer(frameAt = performance.now()) {
   const time = frameAt / 1000;
   const motionScale = reduceMotionQuery.matches ? 0.15 : 1;
 
+  visual.fluidTime += dt * (0.8 + visual.energy * 0.8);
   beatCooldown = Math.max(0, beatCooldown - dt);
   _readAudio(dt);
   _lerpPalette(dt);
 
-  // Detección de golpes de bombo / transitorios
+  // Detección de golpes rítmicos / Transitorios para Ondas de Choque Acústicas
   const transient = visual.bass - visual.beatFloor;
   if (
     !reduceMotionQuery.matches &&
     beatCooldown === 0 &&
-    visual.bass > 0.28 &&
-    transient > 0.025 &&
-    visual.flux > 0.05
+    visual.bass > 0.26 &&
+    transient > 0.022 &&
+    visual.flux > 0.045
   ) {
-    visual.pulse = _clamp(visual.pulse + 0.45 + visual.flux * 0.35, 0, 1);
-    beatCooldown = 0.16;
+    visual.pulse = _clamp(visual.pulse + 0.50 + visual.flux * 0.35, 0, 1);
+    beatCooldown = 0.15;
+    
+    // Disparar onda de choque acústica
+    const spawnX = width * pointer.x;
+    const spawnY = height * pointer.y;
+    _spawnAcousticRipple(spawnX, spawnY, visual.bass, visual.palette.accent);
   }
   visual.pulse *= Math.exp(-4.2 * dt);
 
   ctx.clearRect(0, 0, width, height);
 
-  // Renderizado 100% de luz acústica envolvente
-  _drawAtmosphericBase(width, height);
-  _drawAcousticLightAtmosphere(width, height, short, time, motionScale);
-  _drawAcousticBeatBloom(width, height, short);
-  _drawCenterVignette(width, height);
+  // Pipeline de Renderizado de Simulación Acústica Fluida
+  _drawAtmosphericFluidBase(width, height, time);
+  _drawHarmonicWaveRibbons(width, height, time, dt, motionScale);
+  _drawCymaticPressureNodes(width, height, short, time, dt, motionScale);
+  _updateAndDrawAcousticRipples(width, height, dt);
+  _drawHarmonicCaustics(width, height, short, time, motionScale);
+  _drawCinematicVignette(width, height);
 
   ctx.globalCompositeOperation = "source-over";
 

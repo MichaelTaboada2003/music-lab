@@ -19,6 +19,24 @@
 
 **Music Lab** es una plataforma web full-stack diseñada para amantes de la música, creadores de contenido y vocalistas. Combina un reproductor musical de estética *Glassmorphism* hiper-reactivo con potentes herramientas de inteligencia artificial para la separación de pistas, sincronización automática de letras a nivel de milisegundo y renderizado de videos dinámicos para redes sociales (TikTok, Reels, Shorts).
 
+<p align="center">
+  <img src="docs/screenshots/player_karaoke.png" alt="Music Lab - Reproductor Inmersivo y Modo Karaoke" width="95%" />
+</p>
+
+---
+
+## 📸 Vistas de la Aplicación
+
+| Reproductor & Modo Karaoke | Sincronización IA con Whisper & Demucs |
+| :---: | :---: |
+| <img src="docs/screenshots/player_karaoke.png" alt="Reproductor Inmersivo" width="100%" /> | <img src="docs/screenshots/video_studio_sync.png" alt="Sincronizador IA" width="100%" /> |
+| **Iluminación acústica reactiva a 60 FPS y letras en vivo** | **Aislamiento vocal (Demucs) y alineación forzada** |
+
+| Selección de Clip & Renderizado | Estilos Visuales & Modo Terminal |
+| :---: | :---: |
+| <img src="docs/screenshots/video_studio_clip.png" alt="Renderizado de Video" width="100%" /> | <img src="docs/screenshots/video_studio_styles.png" alt="Estilos Visuales" width="100%" /> |
+| **Exportación vertical MP4 (1080x1920) para TikTok/Reels** | **Temas Glassmorphism, Cyberpunk Terminal y tipografías** |
+
 ---
 
 ## 🚀 Características Principales
@@ -41,7 +59,7 @@
 * **Múltiples Formatos Visuales:**
   * **Estilo Reproductor:** Estética *Glassmorphism* flotante con carátula, ecualizador reactivo y letra animada.
   * **Estilo Terminal:** Estética *Cyberpunk / Hacker* con arte ASCII (PyFiglet), fuentes monoespaciadas y trazas de consola.
-* **Personalización Total:** Tipografías configurables, escalas de texto y temas de color.
+* **Personalización Total:** Tipografías configurables, escalas de texto y temas de color (Terminal Signal, Medianoche Neon, Atardecer Pulse, Nube Frost).
 
 ### 🔍 4. Módulo Descubrir & Spotify Sync
 * **Integración Spotify Web API:** Autenticación OAuth 2.0 para explorar canciones, álbumes y playlists populares.
@@ -144,6 +162,8 @@ music-lab/
 │       ├── songs.py            # Descarga, carátulas y metadatos
 │       ├── spotify.py          # OAuth y búsqueda en Spotify
 │       └── video.py            # Renderizado y exportación de video
+├── docs/                       # Documentación y recursos gráficos
+│   └── screenshots/            # Capturas de la interfaz y demostraciones
 ├── static/                     # Frontend SPA (Vanilla JS + CSS)
 │   ├── index.html              # Estructura principal
 │   ├── style.css               # Sistema de diseño y Glassmorphism UI
