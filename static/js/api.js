@@ -86,13 +86,16 @@ export function formatSeconds(s) {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-/** Rellena un <select> de canciones y llama onChange si cambia la selección. */
-export async function refreshSongSelect(selectEl, onChange) {
+/** Rellena un <select> de canciones y llama onChange si cambia la selección.
+ *  `filter` (opcional) es un predicado sobre cada canción de /api/canciones,
+ *  para vistas que solo trabajan con una parte de la biblioteca. */
+export async function refreshSongSelect(selectEl, onChange, filter) {
   try {
     const data = await apiGet("/api/canciones");
     const previous = selectEl.value;
+    const canciones = filter ? data.canciones.filter(filter) : data.canciones;
     selectEl.innerHTML = "";
-    data.canciones.forEach((c) => {
+    canciones.forEach((c) => {
       const opt = document.createElement("option");
       opt.value = c.stem;
       opt.textContent =
@@ -101,9 +104,11 @@ export async function refreshSongSelect(selectEl, onChange) {
         (c.tiene_sync ? " · karaoke" : "");
       selectEl.appendChild(opt);
     });
-    if (previous && data.canciones.some((c) => c.stem === previous)) {
+    if (previous && canciones.some((c) => c.stem === previous)) {
       selectEl.value = previous;
-    } else if (onChange && data.canciones.length > 0) {
+    } else if (onChange) {
+      // También cuando la lista queda vacía: la vista necesita saberlo para
+      // limpiarse en vez de seguir mostrando la canción anterior.
       onChange();
     }
   } catch (e) {

@@ -10,6 +10,9 @@ from pathlib import Path
 
 _METADATA_PATH = Path(__file__).resolve().parent / ".library_metadata.json"
 _LOCK = threading.Lock()
+# Los recortes creados antes de que existiera la marca solo se reconocen por el
+# sufijo con el que los bautiza audio_trim.
+_CLIP_SUFFIX_RE = re.compile(r"\(recorte\)(\s*\(\d+\))?$", re.IGNORECASE)
 _NOISE_RE = re.compile(r"\s*(?:\[?(?:official\s*)?(?:audio|video|lyrics?|video\s*letra)\]?|\(\s*(?:official\s*)?(?:audio|video|lyrics?)\s*\))\s*$", re.IGNORECASE)
 
 
@@ -85,7 +88,14 @@ def get_metadata(song: Path) -> dict:
     title = _clean(manual.get("title", "")) or tag_title or inferred_title or song.stem
     artist = _clean(manual.get("artist", "")) or tag_artist or inferred_artist
     source = "manual" if manual else "tags" if tag_title or tag_artist else "filename"
-    return {"title": title, "artist": artist, "metadata_source": source}
+    es_recorte = manual.get("kind") == "clip" or bool(_CLIP_SUFFIX_RE.search(song.stem.strip()))
+    return {
+        "title": title,
+        "artist": artist,
+        "metadata_source": source,
+        "kind": "clip" if es_recorte else "song",
+        "clip_of": manual.get("clip_of", "") if es_recorte else "",
+    }
 
 
 def save_metadata(stem: str, title: str, artist: str) -> dict:
@@ -94,6 +104,16 @@ def save_metadata(stem: str, title: str, artist: str) -> dict:
         raise ValueError("El título no puede estar vacío.")
     with _LOCK:
         data = _read_overrides()
-        data[stem] = {"title": title, "artist": artist}
+        # Conserva las marcas que no edita el usuario (kind, clip_of).
+        data[stem] = {**data.get(stem, {}), "title": title, "artist": artist}
         _write_overrides(data)
     return {"title": title, "artist": artist, "metadata_source": "manual"}
+
+
+def mark_as_clip(stem: str, source_stem: str = "") -> None:
+    """Marca un stem como recorte de `source_stem` para poder filtrarlos en la
+    interfaz sin depender de cómo se llame el archivo."""
+    with _LOCK:
+        data = _read_overrides()
+        data[stem] = {**data.get(stem, {}), "kind": "clip", "clip_of": source_stem}
+        _write_overrides(data)

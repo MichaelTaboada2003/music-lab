@@ -5,10 +5,11 @@
 // Importaciones diferidas para evitar ciclos: lyrics y studio necesitan
 // nav (a través de discover) y nav necesita refrescar sus selectores.
 import { refreshSongSelect } from "./api.js";
-import { lyricsSongSelect, onLyricsSongChange } from "./lyrics.js";
+import { refreshLyricsSongs } from "./lyrics.js";
 import {
   studioSongSelect, onStudioSongChange, loadVideoGallery,
 } from "./studio.js";
+import { trimSongSelect, onTrimSongChange } from "./trim.js";
 import {
   discoverLoaded, setDiscoverLoaded, loadRecap,
 } from "./discover.js";
@@ -27,7 +28,8 @@ export function activateView(view) {
   section.classList.add("active");
   document.body.dataset.activeView = view;
 
-  if (view === "lyrics") refreshSongSelect(lyricsSongSelect, onLyricsSongChange);
+  if (view === "lyrics") refreshLyricsSongs();
+  if (view === "trim") refreshSongSelect(trimSongSelect, onTrimSongChange);
   if (view === "studio") {
     refreshSongSelect(studioSongSelect, onStudioSongChange);
     loadVideoGallery();

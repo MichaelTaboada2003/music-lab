@@ -33,6 +33,9 @@
       <button class="nav-item" data-view="lyrics">
         <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; vertical-align:middle; margin-top:-2px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Letras
       </button>
+      <button class="nav-item" data-view="trim">
+        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; vertical-align:middle; margin-top:-2px"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.48" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line></svg> Recortar
+      </button>
       <button class="nav-item" data-view="spotify">
         <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; vertical-align:middle; margin-top:-2px"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg> Descubrir
       </button>
@@ -172,7 +175,21 @@
       <section class="view" id="view-lyrics">
         <h1>Ver / crear letra</h1>
         <div class="form-card">
-          <label>Canción</label>
+          <fieldset class="song-kind-picker">
+            <legend>Qué quieres editar</legend>
+            <div class="song-kind-options">
+              <label class="song-kind-option">
+                <input type="radio" name="lyricsSongKind" value="song" checked />
+                <span>Canciones</span>
+              </label>
+              <label class="song-kind-option">
+                <input type="radio" name="lyricsSongKind" value="clip" />
+                <span>Recortes</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <label id="lyricsSongLabel">Canción</label>
           <select id="lyricsSongSelect"></select>
 
           <label>Letra (separa las estrofas con una línea vacía)</label>
@@ -181,6 +198,83 @@
           <button id="lyricsSaveBtn">Guardar letra</button>
         </div>
         <div id="lyricsStatus" class="status-box"></div>
+      </section>
+
+      <!-- ============ VISTA: RECORTAR ============ -->
+      <section class="view" id="view-trim">
+        <h1>Recortar canción</h1>
+        <p class="hint">
+          Marca el tramo que quieres conservar, escúchalo y guárdalo como una
+          canción nueva de tu biblioteca. El archivo original no se toca.
+        </p>
+
+        <div class="form-card trim-card">
+          <label>Canción</label>
+          <select id="trimSongSelect"></select>
+
+          <div class="trim-stage">
+            <button class="trim-play trim-control" id="trimPlayBtn" type="button" title="Reproducir o pausar"></button>
+            <div class="trim-track" id="trimTrack">
+              <div class="trim-selection" id="trimSelection"></div>
+              <div class="trim-playhead" id="trimPlayhead"></div>
+              <button class="trim-handle trim-control" id="trimHandleStart" type="button" aria-label="Inicio del recorte"></button>
+              <button class="trim-handle trim-control" id="trimHandleEnd" type="button" aria-label="Fin del recorte"></button>
+            </div>
+          </div>
+          <div class="trim-times">
+            <span id="trimCurrentTime">0:00</span>
+            <span class="trim-selection-label" id="trimSelectionLabel">Elige una canción</span>
+            <span id="trimTotalTime">0:00</span>
+          </div>
+          <p class="hint trim-help">
+            Arrastra los tiradores o pulsa «Marcar» para fijar el punto exacto
+            donde va la reproducción.
+          </p>
+
+          <div class="trim-grid">
+            <div class="trim-field">
+              <div class="trim-field-head">
+                <span class="trim-field-label">Inicio</span>
+                <button class="trim-mark trim-control" id="trimMarkStart" type="button" title="Usar la posición actual de reproducción">Marcar</button>
+              </div>
+              <input id="trimStart" type="number" min="0" step="0.1" placeholder="0" title="Segundo en que empieza el recorte" />
+            </div>
+            <div class="trim-field">
+              <div class="trim-field-head">
+                <span class="trim-field-label">Fin</span>
+                <button class="trim-mark trim-control" id="trimMarkEnd" type="button" title="Usar la posición actual de reproducción">Marcar</button>
+              </div>
+              <input id="trimEnd" type="number" min="0" step="0.1" placeholder="final" title="Segundo en que termina el recorte" />
+            </div>
+            <div class="trim-field trim-field-wide">
+              <div class="trim-field-head">
+                <span class="trim-field-label">Nombre del recorte</span>
+              </div>
+              <input id="trimName" type="text" maxlength="120" autocomplete="off" placeholder="Se genera automáticamente" />
+            </div>
+          </div>
+
+          <label class="trim-fade">
+            <input type="checkbox" id="trimFade" checked />
+            <span>Fundido de medio segundo al entrar y salir</span>
+          </label>
+
+          <div class="trim-actions">
+            <button id="trimPreviewBtn" type="button" class="btn-ghost">Escuchar selección</button>
+            <button id="trimSaveBtn" type="button">Guardar recorte</button>
+          </div>
+
+          <audio id="trimAudio" preload="metadata" hidden></audio>
+        </div>
+
+        <div class="job-progress" id="trimProgress" hidden>
+          <div class="job-progress-head">
+            <span class="job-progress-phase" id="trimProgressPhase"></span>
+            <span class="job-progress-pct" id="trimProgressPct"></span>
+          </div>
+          <div class="job-progress-bar"><div class="job-progress-fill" id="trimProgressFill"></div></div>
+        </div>
+        <div id="trimStatus" class="status-box"></div>
       </section>
 
       <!-- ============ VISTA: VIDEO ============ -->

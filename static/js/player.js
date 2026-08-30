@@ -481,12 +481,12 @@ metadataSaveBtn?.addEventListener("click", async () => {
     currentArtistName.textContent = song.artist || "";
     metadataStatus.textContent = "Ficha guardada.";
     renderPlaylist();
-    const [{ studioSongSelect }, { lyricsSongSelect }] = await Promise.all([
+    const [{ studioSongSelect }, { refreshLyricsSongs }] = await Promise.all([
       import("./studio.js"),
       import("./lyrics.js"),
     ]);
     refreshSongSelect(studioSongSelect);
-    refreshSongSelect(lyricsSongSelect);
+    refreshLyricsSongs();
   } catch (error) {
     metadataStatus.textContent = `No se pudo guardar: ${error.message}`;
   } finally {

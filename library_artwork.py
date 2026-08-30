@@ -8,6 +8,8 @@ fallos se recuerdan para no repetir procesos ni peticiones al navegar.
 import hashlib
 import json
 import os
+import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -15,12 +17,14 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from app.config import COVERS_DIR
+from app.config import AUDIO_EXTS, CANCIONES_DIR, COVERS_DIR
 from library_metadata import get_metadata
 
 _CACHE_PATH = COVERS_DIR / "index.json"
 _LOCK = threading.Lock()
 _USER_AGENT = "Music-Lab/1.0 (local artwork resolver)"
+# Recortes anteriores a la marca kind/clip_of: el origen se deduce del nombre.
+_CLIP_SUFFIX_RE = re.compile(r"\s*\(recorte\)(\s*\(\d+\))?$", re.IGNORECASE)
 
 
 def _cache_key(song: Path) -> str:
@@ -97,14 +101,46 @@ def _download_catalog_artwork(song: Path, output: Path) -> bool:
         return False
 
 
+def _song_by_stem(stem: str) -> Path | None:
+    if not stem:
+        return None
+    for extension in AUDIO_EXTS:
+        candidate = CANCIONES_DIR / f"{stem}{extension}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _origin_of_clip(song: Path, metadata: dict) -> Path | None:
+    """Canción de la que salió un recorte, si sigue en la biblioteca."""
+    if metadata.get("kind") != "clip":
+        return None
+    origen = _song_by_stem(metadata.get("clip_of") or "")
+    if origen is None:
+        # Respaldo para recortes creados antes de que existiera la marca.
+        origen = _song_by_stem(_CLIP_SUFFIX_RE.sub("", song.stem).strip())
+    return origen if origen and origen != song else None
+
+
 def resolve_cover(song: Path) -> Path | None:
     """Devuelve una carátula local o ``None`` si corresponde usar el fallback UI."""
+    # Un recorte usa la portada de su tema original: buscarla por título en el
+    # catálogo daría un resultado erróneo (o ninguno) por el sufijo del nombre.
+    # Se resuelve antes de tomar el lock porque esta llamada es recursiva.
+    origen = _origin_of_clip(song, get_metadata(song))
+    cover_origen = resolve_cover(origen) if origen else None
+
     fingerprint = song.stat().st_mtime_ns
     output = _cover_path(song)
     with _LOCK:
         cache = _read_cache()
         entry = cache.get(song.stem, {})
-        if entry.get("fingerprint") == fingerprint:
+        vigente = entry.get("fingerprint") == fingerprint
+        # Un recorte guardado en caché antes de que heredara la portada (o que
+        # se quedó sin ninguna) debe reevaluarse una vez.
+        if vigente and cover_origen is not None and entry.get("source") not in ("embedded", "clip-origin"):
+            vigente = False
+        if vigente:
             if entry.get("status") == "ready" and output.is_file():
                 return output
             if entry.get("status") == "missing":
@@ -113,7 +149,15 @@ def resolve_cover(song: Path) -> Path | None:
         output.unlink(missing_ok=True)
         temp_output = output.with_suffix(".tmp.jpg")
         temp_output.unlink(missing_ok=True)
-        source = "embedded" if _extract_embedded(song, temp_output) else "catalog"
+        source = "embedded" if _extract_embedded(song, temp_output) else ""
+        if not source and cover_origen is not None:
+            try:
+                shutil.copyfile(cover_origen, temp_output)
+                source = "clip-origin"
+            except OSError:
+                source = ""
+        if not source:
+            source = "catalog"
         if source == "catalog" and not _download_catalog_artwork(song, temp_output):
             temp_output.unlink(missing_ok=True)
             cache[song.stem] = {"fingerprint": fingerprint, "status": "missing"}

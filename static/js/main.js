@@ -16,6 +16,7 @@ import { enhanceSelect } from "./dropdown.js";
 
 // Módulos con efectos laterales: registran listeners al ser evaluados.
 import "./lyrics.js";
+import "./trim.js";
 import "./studio.js";
 import "./discover.js";
 import "./visualizer.js";
@@ -30,6 +31,7 @@ initKaraoke(audioPlayer, karaokeStage, karaokeText);
 // Mejorar los <select> del sistema para que coincidan con el diseño.
 [
   document.getElementById("lyricsSongSelect"),
+  document.getElementById("trimSongSelect"),
   document.getElementById("studioSongSelect"),
   document.getElementById("studioLanguage"),
   document.getElementById("studioModel"),

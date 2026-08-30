@@ -47,6 +47,8 @@
 * **Apagado Inteligente en Pausa:** Al pausar, el canvas se limpia y suspende por completo, garantizando 0% de consumo de CPU y una interfaz sobria.
 * **Soundcheck & Calidad de Audio:** Medición de rango dinámico, balance tonal y herramientas de calibración de ganancia por pista.
 * **Gestión de Biblioteca & Fichas:** Búsqueda en tiempo real, edición de metadatos ID3 (título, artista) y persistencia local.
+* **Recorte de Canciones (sección propia):** Línea de tiempo con tiradores arrastrables para marcar inicio y fin, escucha previa del tramo y exportación con fundidos como una canción nueva. El recorte es no destructivo: el archivo original nunca se modifica.
+* **Recortes como Pistas de Pleno Derecho:** Cada recorte queda marcado en la biblioteca, así que la vista de Letras permite alternar entre **Canciones** y **Recortes** para escribir y sincronizar la letra de un fragmento por separado. Además heredan la carátula del tema original, incrustada en el propio archivo.
 
 ### 🎤 2. Sincronización Automática de Karaoke por IA
 * **Alineación Forzada (Forced Alignment):** Utiliza **Whisper Timestamped** para mapear fonemas con la letra escrita, detectando el milisegundo exacto de inicio y fin de cada palabra.
@@ -159,7 +161,7 @@ music-lab/
 │       ├── audio_quality.py    # Soundcheck y análisis de calidad
 │       ├── frontend.py         # Servidor de vistas y biblioteca
 │       ├── karaoke.py          # Separación vocal y sincronización
-│       ├── songs.py            # Descarga, carátulas y metadatos
+│       ├── songs.py            # Descarga, recorte, carátulas y metadatos
 │       ├── spotify.py          # OAuth y búsqueda en Spotify
 │       └── video.py            # Renderizado y exportación de video
 ├── docs/                       # Documentación y recursos gráficos
@@ -175,13 +177,16 @@ music-lab/
 │       ├── main.js             # Punto de entrada de la SPA
 │       ├── nav.js              # Enrutador por Hash
 │       ├── player.js           # Lógica del reproductor y playlist
+│       ├── trim.js             # Vista de recorte con línea de tiempo
 │       ├── studio.js           # Flujo de trabajo del estudio de video
 │       └── visualizer.js       # Motor de iluminación acústica Web Audio API
 ├── tests/                      # Suite de pruebas automatizadas
+│   ├── test_audio_trim.py      # Pruebas de recorte y validación de rangos
 │   ├── test_lyrics_sync.py     # Pruebas de alineación y VAD
 │   └── test_tiktok_generator.py # Pruebas del renderizador de video
 ├── audio_downloader.py         # Extractor de audio vía yt-dlp
 ├── audio_quality.py            # Análisis de nivel sonoro y metadatos
+├── audio_trim.py               # Recorte de fragmentos de audio con ffmpeg
 ├── library_artwork.py          # Extracción y redimensionado de carátulas
 ├── library_metadata.py         # Gestor de fichas técnicas JSON
 ├── lyrics_sync.py              # Pipeline Whisper + VAD + Alignment

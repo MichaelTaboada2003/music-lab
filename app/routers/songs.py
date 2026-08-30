@@ -4,16 +4,19 @@ Endpoints de canciones y letras:
   - POST /api/descargar            → descarga vía yt-dlp (audio_downloader)
   - GET  /api/letra/{stem}         → obtener texto de la letra
   - POST /api/letra/{stem}         → guardar/actualizar letra
+  - POST /api/canciones/{stem}/recortar → recorta un fragmento como copia nueva
 """
 
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from audio_downloader import is_url, resolve_audio_source
-from library_metadata import get_metadata, save_metadata
+from audio_trim import MIN_DURATION, trim_audio
+from library_metadata import get_metadata, mark_as_clip, save_metadata
 from library_artwork import invalidate_cover, resolve_cover
 from lyrics_sync import sync_cache_is_current
 
@@ -116,12 +119,75 @@ def api_cover_cancion(stem: str):
     song = find_song(stem)
     cover = resolve_cover(song)
     if not cover:
-        raise HTTPException(404, "No hay carátula disponible")
+        # Sin no-store el navegador cachea el 404 por heurística y sigue
+        # mostrando el hueco aunque la canción ya tenga portada (por ejemplo,
+        # un recorte que hereda la del original).
+        raise HTTPException(
+            404, "No hay carátula disponible",
+            headers={"Cache-Control": "no-store"},
+        )
     return FileResponse(
         cover,
         media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+class RecorteRequest(BaseModel):
+    start: float = Field(default=0.0, ge=0)
+    end: Optional[float] = Field(default=None, gt=0)
+    nombre_salida: Optional[str] = None
+    fade_in: float = Field(default=0.0, ge=0, le=10)
+    fade_out: float = Field(default=0.0, ge=0, le=10)
+
+
+@router.post("/api/canciones/{stem}/recortar")
+def api_recortar_cancion(stem: str, payload: RecorteRequest):
+    """Guarda el tramo elegido como una canción nueva. El original no se toca:
+    la letra y el karaoke del tema completo siguen siendo válidos."""
+    song = find_song(stem)
+    if payload.end is not None and payload.end - payload.start < MIN_DURATION:
+        raise HTTPException(400, f"El fragmento debe durar al menos {MIN_DURATION:g} segundos.")
+
+    nombre = (payload.nombre_salida or "").strip() or None
+    if nombre and Path(nombre).name != nombre:
+        raise HTTPException(400, "El nombre del recorte no puede incluir carpetas.")
+
+    def task(progress_cb):
+        progress_cb("Preparando recorte", None)
+        # La portada del original viaja al recorte: el corte descarta las pistas
+        # de video del archivo, que es donde vive la carátula incrustada.
+        recorte = trim_audio(
+            song,
+            start=payload.start, end=payload.end,
+            output_dir=CANCIONES_DIR, filename=nombre,
+            fade_in=payload.fade_in, fade_out=payload.fade_out,
+            cover=resolve_cover(song),
+            progress_cb=progress_cb,
+        )
+        # Sin ficha propia el recorte aparecería con el nombre crudo del
+        # archivo; hereda la del original para no perder el artista.
+        origen = get_metadata(song)
+        try:
+            save_metadata(
+                recorte.stem,
+                recorte.stem if nombre else f"{origen['title']} (recorte)",
+                origen.get("artist", ""),
+            )
+        except ValueError:
+            pass  # La ficha es un extra: el recorte ya está en disco.
+        # La marca sobrevive a cualquier renombrado de la ficha, así que la
+        # interfaz puede separar canciones de recortes sin mirar el nombre.
+        mark_as_clip(recorte.stem, song.stem)
+        return {
+            "archivo": recorte.name,
+            "stem": recorte.stem,
+            "duracion": obtener_duracion(recorte),
+        }
+
+    key = (f"trim:{stem}:{payload.start}:{payload.end}:{nombre or ''}:"
+           f"{payload.fade_in}:{payload.fade_out}")
+    return {"job_id": start_job(task, key=key)}
 
 
 @router.post("/api/letra/{stem}")

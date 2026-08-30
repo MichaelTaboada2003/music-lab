@@ -1,5 +1,6 @@
 // ============================================================
 // lyrics.js — vista "Letras": ver y editar la letra de una canción
+//   o de un recorte guardado desde la vista "Recortar".
 // ============================================================
 
 import { apiGet, apiPost, setStatus, refreshSongSelect } from "./api.js";
@@ -8,10 +9,40 @@ export const lyricsSongSelect = document.getElementById("lyricsSongSelect");
 const lyricsTextarea = document.getElementById("lyricsTextarea");
 const lyricsSaveBtn = document.getElementById("lyricsSaveBtn");
 const lyricsStatus = document.getElementById("lyricsStatus");
+const kindInputs = document.querySelectorAll('input[name="lyricsSongKind"]');
+const lyricsSongLabel = document.getElementById("lyricsSongLabel");
+
+/** "song" (canciones completas) o "clip" (recortes). */
+function selectedKind() {
+  return document.querySelector('input[name="lyricsSongKind"]:checked')?.value || "song";
+}
+
+/** Rellena el selector con la mitad de la biblioteca que toca. El backend
+ *  marca cada canción con kind: "song" | "clip" (ver library_metadata). */
+export function refreshLyricsSongs() {
+  const kind = selectedKind();
+  lyricsSongLabel.textContent = kind === "clip" ? "Recorte" : "Canción";
+  return refreshSongSelect(
+    lyricsSongSelect,
+    onLyricsSongChange,
+    (cancion) => (cancion.kind || "song") === kind
+  );
+}
 
 export async function onLyricsSongChange() {
   const stem = lyricsSongSelect.value;
-  if (!stem) return;
+  if (!stem) {
+    lyricsTextarea.value = "";
+    lyricsSaveBtn.disabled = true;
+    setStatus(
+      lyricsStatus,
+      selectedKind() === "clip"
+        ? "Todavía no tienes recortes. Crea uno en la sección «Recortar»."
+        : "No hay canciones en tu biblioteca."
+    );
+    return;
+  }
+  lyricsSaveBtn.disabled = false;
   try {
     const data = await apiGet(`/api/letra/${encodeURIComponent(stem)}`);
     lyricsTextarea.value = data.texto || "";
@@ -26,6 +57,7 @@ export async function onLyricsSongChange() {
   }
 }
 
+kindInputs.forEach((input) => input.addEventListener("change", refreshLyricsSongs));
 lyricsSongSelect.addEventListener("change", onLyricsSongChange);
 
 lyricsSaveBtn.addEventListener("click", async () => {
