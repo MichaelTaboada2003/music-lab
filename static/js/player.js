@@ -120,7 +120,10 @@ export function cargarCancion(index) {
 }
 
 function _instrumentalSource(song) {
-  return `/vocals/${encodeURIComponent(song.stem)}.instrumental.wav`;
+  if (song && song.pista_url) {
+    return song.pista_url;
+  }
+  return `/vocals/${encodeURIComponent(song.stem)}.instrumental.flac`;
 }
 
 function _resetKaraokeMode() {

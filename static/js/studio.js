@@ -193,7 +193,7 @@ export async function onStudioSongChange() {
     const data = await apiGet(`/api/karaoke/${encodeURIComponent(stem)}`);
     if (data.tiene_vocals && studioListenVocalsBtn) {
       studioListenVocalsBtn.hidden = false;
-      studioVocalsAudio.src = `/vocals/${encodeURIComponent(stem)}.vocals.wav`;
+      studioVocalsAudio.src = data.vocals_url || `/vocals/${encodeURIComponent(stem)}.vocals.flac`;
     }
     if (data.actual) {
       applyStudioSync(stem, data.datos);
