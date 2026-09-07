@@ -27,12 +27,25 @@ VOCALS_DIR = BASE_DIR / "vocals"
 DEFAULT_MODEL = "htdemucs"
 
 
+STEM_EXTS = (".flac", ".mp3", ".wav")
+
+
+def _find_cached_stem(stem: str, kind: str) -> Path | None:
+    for ext in STEM_EXTS:
+        p = VOCALS_DIR / f"{stem}.{kind}{ext}"
+        if p.is_file():
+            return p
+    return None
+
+
 def _cached_vocals_path(audio_path: Path) -> Path:
-    return VOCALS_DIR / f"{audio_path.stem}.vocals.wav"
+    found = _find_cached_stem(audio_path.stem, "vocals")
+    return found if found is not None else (VOCALS_DIR / f"{audio_path.stem}.vocals.flac")
 
 
 def _cached_instrumental_path(audio_path: Path) -> Path:
-    return VOCALS_DIR / f"{audio_path.stem}.instrumental.wav"
+    found = _find_cached_stem(audio_path.stem, "instrumental")
+    return found if found is not None else (VOCALS_DIR / f"{audio_path.stem}.instrumental.flac")
 
 
 def _is_current(cache_path: Path, audio_path: Path) -> bool:
@@ -44,7 +57,7 @@ def _is_current(cache_path: Path, audio_path: Path) -> bool:
 
 def separate_stems(audio_path: str, model: str = DEFAULT_MODEL, force: bool = False) -> tuple[Path, Path]:
     """
-    Separa voz e instrumental y devuelve ambas rutas .wav.
+    Separa voz e instrumental y devuelve ambas rutas (.flac, .mp3 o .wav).
     La caché se considera válida solo si los dos stems corresponden al audio
     actual: así una instalación previa que guardó solo la voz se actualiza al
     primer uso del modo karaoke.
@@ -63,10 +76,11 @@ def separate_stems(audio_path: str, model: str = DEFAULT_MODEL, force: bool = Fa
 
     print(f"Separando la voz con Demucs ('{model}'), esto puede tardar un poco...")
     with tempfile.TemporaryDirectory() as tmpdir:
-        # --two-stems=vocals genera vocals.wav (voz) y no_vocals.wav (pista).
+        # --two-stems=vocals genera vocals y no_vocals (usamos --flac para ahorrar ~50% de espacio sin pérdida).
         cmd = [
             sys.executable, "-m", "demucs",
             "--two-stems=vocals",
+            "--flac",
             "-n", model,
             "-o", tmpdir,
             str(audio_path),
@@ -77,16 +91,24 @@ def separate_stems(audio_path: str, model: str = DEFAULT_MODEL, force: bool = Fa
                 "Demucs falló al separar la voz.\n" + (result.stdout or "")[-1500:]
             )
 
-        produced_vocals = Path(tmpdir) / model / audio_path.stem / "vocals.wav"
-        produced_instrumental = Path(tmpdir) / model / audio_path.stem / "no_vocals.wav"
-        if not produced_vocals.is_file() or not produced_instrumental.is_file():
-            # Buscar por si el nombre de la subcarpeta difiere
-            vocal_matches = list(Path(tmpdir).glob(f"{model}/*/vocals.wav"))
-            instrumental_matches = list(Path(tmpdir).glob(f"{model}/*/no_vocals.wav"))
-            if not vocal_matches or not instrumental_matches:
-                raise RuntimeError("Demucs terminó pero no se encontraron los stems de voz e instrumental.")
-            produced_vocals = vocal_matches[0]
-            produced_instrumental = instrumental_matches[0]
+        # Buscar stems generados (preferencia .flac, luego .wav o .mp3)
+        vocal_matches = []
+        instrumental_matches = []
+        for ext in ("flac", "wav", "mp3"):
+            vocal_matches = list(Path(tmpdir).glob(f"**/{audio_path.stem}/vocals.{ext}")) or list(Path(tmpdir).glob(f"**/vocals.{ext}"))
+            instrumental_matches = list(Path(tmpdir).glob(f"**/{audio_path.stem}/no_vocals.{ext}")) or list(Path(tmpdir).glob(f"**/no_vocals.{ext}"))
+            if vocal_matches and instrumental_matches:
+                break
+
+        if not vocal_matches or not instrumental_matches:
+            raise RuntimeError("Demucs terminó pero no se encontraron los stems de voz e instrumental.")
+
+        produced_vocals = vocal_matches[0]
+        produced_instrumental = instrumental_matches[0]
+
+        target_ext = produced_vocals.suffix
+        cached_vocals = VOCALS_DIR / f"{audio_path.stem}.vocals{target_ext}"
+        cached_instrumental = VOCALS_DIR / f"{audio_path.stem}.instrumental{target_ext}"
 
         shutil.move(str(produced_vocals), str(cached_vocals))
         shutil.move(str(produced_instrumental), str(cached_instrumental))
