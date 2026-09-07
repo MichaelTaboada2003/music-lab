@@ -37,16 +37,28 @@ def api_karaoke_cache(stem: str):
     song = find_song(stem)
     lyrics_path = lyrics_path_for(stem)
     cache = sync_cache_path_for(stem)
-    tiene_vocals = vocals_path_for(stem).is_file()
-    tiene_pista = cached_stem_is_current(instrumental_path_for(stem), song)
+    voc_path = vocals_path_for(stem)
+    inst_path = instrumental_path_for(stem)
+    tiene_vocals = voc_path.is_file()
+    tiene_pista = cached_stem_is_current(inst_path, song)
+    vocals_url = f"/vocals/{voc_path.name}" if tiene_vocals else None
+    pista_url = f"/vocals/{inst_path.name}" if tiene_pista else None
+
+    base_payload = {
+        "tiene_vocals": tiene_vocals,
+        "tiene_pista": tiene_pista,
+        "vocals_url": vocals_url,
+        "pista_url": pista_url,
+    }
+
     if not cache.is_file():
-        return {"existe": False, "actual": False, "tiene_vocals": tiene_vocals, "tiene_pista": tiene_pista}
+        return {"existe": False, "actual": False, **base_payload}
 
     try:
         with open(cache, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return {"existe": False, "actual": False, "stale": True, "tiene_vocals": tiene_vocals, "tiene_pista": tiene_pista}
+        return {"existe": False, "actual": False, "stale": True, **base_payload}
 
     actual = lyrics_path.is_file() and sync_cache_is_current(
         data, str(song), str(lyrics_path)
@@ -58,8 +70,7 @@ def api_karaoke_cache(stem: str):
         "stale": not actual,
         "datos": data if actual else None,
         "calidad": quality,
-        "tiene_vocals": tiene_vocals,
-        "tiene_pista": tiene_pista,
+        **base_payload,
     }
 
 

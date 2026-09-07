@@ -24,7 +24,7 @@ from ..config import CANCIONES_DIR
 from ..jobs import start_job
 from ..utils import (
     cached_stem_is_current, find_song, instrumental_path_for, list_songs, lyrics_path_for, obtener_duracion,
-    sync_cache_path_for,
+    sync_cache_path_for, vocals_path_for,
 )
 
 router = APIRouter(tags=["songs"])
@@ -52,6 +52,10 @@ def api_canciones():
     canciones = []
     for p in list_songs():
         metadata = get_metadata(p)
+        inst_path = instrumental_path_for(p.stem)
+        has_pista = cached_stem_is_current(inst_path, p)
+        voc_path = vocals_path_for(p.stem)
+        has_vocals = voc_path.is_file()
         canciones.append({
             "nombre": p.name,
             "stem": p.stem,
@@ -59,7 +63,10 @@ def api_canciones():
             **metadata,
             "tiene_letra": lyrics_path_for(p.stem).is_file(),
             "tiene_sync": _has_playable_sync(p),
-            "tiene_pista": cached_stem_is_current(instrumental_path_for(p.stem), p),
+            "tiene_pista": has_pista,
+            "pista_url": f"/vocals/{inst_path.name}" if has_pista else None,
+            "tiene_vocals": has_vocals,
+            "vocals_url": f"/vocals/{voc_path.name}" if has_vocals else None,
         })
     return {"canciones": canciones}
 

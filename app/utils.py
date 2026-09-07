@@ -47,12 +47,26 @@ def sync_cache_path_for(stem: str) -> Path:
     return LETRAS_DIR / f"{stem}.sync.json"
 
 
+STEM_EXTS = (".flac", ".mp3", ".wav")
+
+
+def find_cached_stem(stem: str, kind: str) -> Path | None:
+    """Busca el stem cacheado probando .flac, .mp3 y .wav."""
+    for ext in STEM_EXTS:
+        p = VOCALS_DIR / f"{stem}.{kind}{ext}"
+        if p.is_file():
+            return p
+    return None
+
+
 def vocals_path_for(stem: str) -> Path:
-    return VOCALS_DIR / f"{stem}.vocals.wav"
+    found = find_cached_stem(stem, "vocals")
+    return found if found is not None else (VOCALS_DIR / f"{stem}.vocals.flac")
 
 
 def instrumental_path_for(stem: str) -> Path:
-    return VOCALS_DIR / f"{stem}.instrumental.wav"
+    found = find_cached_stem(stem, "instrumental")
+    return found if found is not None else (VOCALS_DIR / f"{stem}.instrumental.flac")
 
 
 def cached_stem_is_current(stem_path: Path, song_path: Path) -> bool:
