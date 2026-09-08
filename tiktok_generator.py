@@ -15,6 +15,7 @@ tiempos de la letra son absolutos respecto al audio completo.
 
 import argparse
 import math
+from functools import lru_cache
 from pathlib import Path
 
 from moviepy import VideoClip, AudioFileClip
@@ -256,9 +257,21 @@ def _load_font(candidates, size):
     return font
 
 
-def _text_width(draw, text, font):
-    bbox = draw.textbbox((0, 0), text, font=font)
+# Medir texto es la operación más repetida del render: cada frame vuelve a
+# preguntar el ancho de las mismas palabras. `textbbox` depende solo del texto
+# y de la fuente (es independiente del modo y del tamaño de la imagen del
+# `draw`), así que se memoriza sin alterar un solo píxel del resultado.
+_MEASURE_DRAW = ImageDraw.Draw(Image.new("L", (1, 1)))
+
+
+@lru_cache(maxsize=16384)
+def _measure_text_width(text, font):
+    bbox = _MEASURE_DRAW.textbbox((0, 0), text, font=font)
     return bbox[2] - bbox[0]
+
+
+def _text_width(draw, text, font):
+    return _measure_text_width(text, font)
 
 
 def _truncate_text(draw, text, font, max_width):
@@ -474,8 +487,11 @@ def _build_player_background(video_size, cover_path):
     return Image.alpha_composite(background.convert("RGBA"), light).convert("RGB")
 
 
+@lru_cache(maxsize=1)
 def _player_fonts():
-    """Tipografía fija del reproductor; no hereda controles de la terminal."""
+    """Tipografía fija del reproductor; no hereda controles de la terminal.
+    El diccionario es de solo lectura para todos sus consumidores, así que se
+    construye una única vez."""
     family = FONT_FAMILIES["modern"]
     return {
         "meta": _load_font(family["bold"], 20),
@@ -896,7 +912,8 @@ def _active_line_for_time(stanzas, current_time, fragment_start=None,
     return active
 
 
-def _fit_player_line_font(draw, text, max_width, active=False, single_line=False):
+@lru_cache(maxsize=4096)
+def _player_line_font(text, max_width, active, single_line):
     family = FONT_FAMILIES["modern"]
     if single_line and active:
         # El verso aislado es el foco completo del panel. La escalera mantiene
@@ -906,9 +923,13 @@ def _fit_player_line_font(draw, text, max_width, active=False, single_line=False
         sizes = (54, 50, 46, 42, 38) if active else (48, 44, 40, 36, 34)
     for size in sizes:
         font = _load_font(family["bold"], size)
-        if _text_width(draw, text, font) <= max_width:
+        if _measure_text_width(text, font) <= max_width:
             return font
     return _load_font(family["bold"], sizes[-1])
+
+
+def _fit_player_line_font(draw, text, max_width, active=False, single_line=False):
+    return _player_line_font(text, max_width, active, single_line)
 
 
 def _fit_player_single_line_layout(draw, line, max_width, max_rows=3):
@@ -927,11 +948,15 @@ def _fit_player_single_line_layout(draw, line, max_width, max_rows=3):
     return last_layout
 
 
-def _draw_player_dim_line(img, text, center_x, y, max_width, color, blur_radius):
-    """Dibuja líneas pasadas/futuras con el desenfoque del karaoke real."""
-    probe = ImageDraw.Draw(img)
-    font = _fit_player_line_font(probe, text, max_width, active=False)
-    text_w = _text_width(probe, text, font)
+# El desenfoque gaussiano de las líneas inactivas es el coste dominante del
+# render: se repite en cada frame sobre un lienzo de 1080x100. La capa
+# resultante depende solo de (texto, ancho, color, radio) —la posición se
+# aplica al pegarla—, así que se memoriza tal cual. No se reescala ningún
+# alfa: el frame sale idéntico bit a bit al del cálculo por frame.
+@lru_cache(maxsize=128)
+def _dim_line_layer(text, max_width, color, blur_radius):
+    font = _player_line_font(text, max_width, False, False)
+    text_w = _measure_text_width(text, font)
     layer_w = max_width + 80
     layer_h = 100
     layer = Image.new("RGBA", (layer_w, layer_h), (0, 0, 0, 0))
@@ -939,7 +964,21 @@ def _draw_player_dim_line(img, text, center_x, y, max_width, color, blur_radius)
     layer_draw.text(((layer_w - text_w) / 2, 16), text, font=font, fill=color)
     if blur_radius:
         layer = layer.filter(ImageFilter.GaussianBlur(radius=blur_radius))
-    img.paste(layer, (round(center_x - layer_w / 2), round(y - 16)), layer)
+    return layer
+
+
+def _draw_player_dim_line(img, text, center_x, y, max_width, color, blur_radius):
+    """Dibuja líneas pasadas/futuras con el desenfoque del karaoke real."""
+    layer = _dim_line_layer(text, max_width, tuple(color), blur_radius)
+    img.paste(layer, (round(center_x - layer.width / 2), round(y - 16)), layer)
+
+
+@lru_cache(maxsize=2048)
+def _word_fill_layer(text, font, fill, width, height):
+    layer = Image.new("RGBA", (width + 8, height), (0, 0, 0, 0))
+    layer_draw = ImageDraw.Draw(layer)
+    layer_draw.text((0, 0), text, font=font, fill=fill)
+    return layer
 
 
 def _paste_word_progress(img, x, y, text, font, base, fill, progress):
@@ -950,9 +989,9 @@ def _paste_word_progress(img, x, y, text, font, base, fill, progress):
         return
     width = max(1, math.ceil(_text_width(draw, text, font)))
     height = max(1, math.ceil(font.size * 1.5))
-    layer = Image.new("RGBA", (width + 8, height), (0, 0, 0, 0))
-    layer_draw = ImageDraw.Draw(layer)
-    layer_draw.text((0, 0), text, font=font, fill=fill)
+    # Solo cambia el recorte con el progreso; el texto pintado es el mismo en
+    # todos los frames de la palabra, así que la capa completa se reutiliza.
+    layer = _word_fill_layer(text, font, fill, width, height)
     clip_width = min(width + 8, max(1, round((width + 8) * min(progress, 1))))
     clipped = layer.crop((0, 0, clip_width, height))
     img.paste(clipped, (round(x), round(y)), clipped)
