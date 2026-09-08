@@ -44,6 +44,15 @@ const metadataTitle = document.getElementById("metadataTitle");
 const metadataArtist = document.getElementById("metadataArtist");
 const metadataSaveBtn = document.getElementById("metadataSaveBtn");
 const metadataStatus = document.getElementById("metadataStatus");
+const coverModalOpenBtn = document.getElementById("coverModalOpenBtn");
+const coverDialog = document.getElementById("coverDialog");
+const coverDialogCloseBtn = document.getElementById("coverDialogCloseBtn");
+const coverDialogQuery = document.getElementById("coverDialogQuery");
+const coverDialogSearchBtn = document.getElementById("coverDialogSearchBtn");
+const coverDialogResults = document.getElementById("coverDialogResults");
+const coverDialogFileInput = document.getElementById("coverDialogFileInput");
+const coverDialogAutoBtn = document.getElementById("coverDialogAutoBtn");
+const coverDialogStatus = document.getElementById("coverDialogStatus");
 const karaokeModeBtn = document.getElementById("karaokeModeBtn");
 const karaokeModeLabel = document.getElementById("karaokeModeLabel");
 const karaokeModeDetail = document.getElementById("karaokeModeDetail");
@@ -483,6 +492,8 @@ metadataSaveBtn?.addEventListener("click", async () => {
     currentSongTitle.textContent = song.title;
     currentArtistName.textContent = song.artist || "";
     metadataStatus.textContent = "Ficha guardada.";
+    _renderArtwork(song);
+    _syncMiniPlayer(song);
     renderPlaylist();
     const [{ studioSongSelect }, { refreshLyricsSongs }] = await Promise.all([
       import("./studio.js"),
@@ -496,6 +507,127 @@ metadataSaveBtn?.addEventListener("click", async () => {
     metadataSaveBtn.disabled = false;
   }
 });
+
+async function _searchAndRenderCoverCandidates(song, query) {
+  if (!coverDialogResults) return;
+  coverDialogResults.innerHTML = '<div class="cover-dialog-empty">Buscando carátulas disponibles…</div>';
+  if (coverDialogStatus) coverDialogStatus.textContent = "";
+
+  try {
+    const qParam = query ? `?q=${encodeURIComponent(query)}` : "";
+    const res = await apiGet(`/api/canciones/${encodeURIComponent(song.stem)}/cover/search${qParam}`);
+    const candidates = res.candidates || [];
+    if (!candidates.length) {
+      coverDialogResults.innerHTML = '<div class="cover-dialog-empty">No se encontraron carátulas relevantes para esta búsqueda. Prueba con otro término o sube un archivo local.</div>';
+      return;
+    }
+
+    coverDialogResults.innerHTML = "";
+    candidates.forEach((cand) => {
+      const card = document.createElement("div");
+      card.className = "cover-candidate-card";
+      card.title = `Aplicar carátula de "${cand.title}" por ${cand.artist}`;
+      card.innerHTML = `
+        <img class="cover-candidate-img" src="${cand.preview_url || cand.cover_url}" alt="${cand.title}" loading="lazy" />
+        <div class="cover-candidate-info">
+          <span class="cover-candidate-title">${cand.title}</span>
+          <span class="cover-candidate-artist">${cand.artist}</span>
+          <span class="cover-candidate-source">${cand.source}</span>
+        </div>
+      `;
+      card.addEventListener("click", async () => {
+        if (coverDialogStatus) coverDialogStatus.textContent = "Aplicando portada...";
+        try {
+          await apiPost(`/api/canciones/${encodeURIComponent(song.stem)}/cover/apply`, {
+            image_url: cand.cover_url,
+          });
+          _renderArtwork(song);
+          _syncMiniPlayer(song);
+          renderPlaylist();
+          if (coverDialogStatus) coverDialogStatus.textContent = "Portada actualizada.";
+          setTimeout(() => coverDialog?.close(), 400);
+        } catch (err) {
+          if (coverDialogStatus) coverDialogStatus.textContent = `Error: ${err.message}`;
+        }
+      });
+      coverDialogResults.appendChild(card);
+    });
+  } catch (err) {
+    coverDialogResults.innerHTML = `<div class="cover-dialog-empty">Error al buscar: ${err.message}</div>`;
+  }
+}
+
+coverModalOpenBtn?.addEventListener("click", () => {
+  const song = canciones[indiceActual];
+  if (!song || !coverDialog) return;
+  const initialQuery = `${song.title || song.stem} ${song.artist || ""}`.trim();
+  if (coverDialogQuery) coverDialogQuery.value = initialQuery;
+  coverDialog.showModal();
+  _searchAndRenderCoverCandidates(song, initialQuery);
+});
+
+coverDialogCloseBtn?.addEventListener("click", () => coverDialog?.close());
+coverDialog?.addEventListener("click", (e) => {
+  if (e.target === coverDialog) coverDialog.close();
+});
+
+coverDialogSearchBtn?.addEventListener("click", () => {
+  const song = canciones[indiceActual];
+  if (!song) return;
+  const query = coverDialogQuery?.value.trim() || "";
+  _searchAndRenderCoverCandidates(song, query);
+});
+
+coverDialogQuery?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    coverDialogSearchBtn?.click();
+  }
+});
+
+coverDialogAutoBtn?.addEventListener("click", async () => {
+  const song = canciones[indiceActual];
+  if (!song) return;
+  if (coverDialogStatus) coverDialogStatus.textContent = "Rebuscando en catálogos...";
+  try {
+    await apiPost(`/api/canciones/${encodeURIComponent(song.stem)}/cover/refresh`, {});
+    _renderArtwork(song);
+    _syncMiniPlayer(song);
+    renderPlaylist();
+    if (coverDialogStatus) coverDialogStatus.textContent = "Portada re-evaluada.";
+    setTimeout(() => coverDialog?.close(), 400);
+  } catch (err) {
+    if (coverDialogStatus) coverDialogStatus.textContent = `Error: ${err.message}`;
+  }
+});
+
+coverDialogFileInput?.addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  const song = canciones[indiceActual];
+  if (!file || !song) return;
+  if (coverDialogStatus) coverDialogStatus.textContent = "Subiendo imagen...";
+  try {
+    const res = await fetch(`/api/canciones/${encodeURIComponent(song.stem)}/cover/upload`, {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Fallo en subida");
+    }
+    _renderArtwork(song);
+    _syncMiniPlayer(song);
+    renderPlaylist();
+    if (coverDialogStatus) coverDialogStatus.textContent = "Portada asignada con éxito.";
+    setTimeout(() => coverDialog?.close(), 400);
+  } catch (err) {
+    if (coverDialogStatus) coverDialogStatus.textContent = `Error: ${err.message}`;
+  } finally {
+    coverDialogFileInput.value = "";
+  }
+});
+
 
 async function _loadPlayerLyrics(cancion) {
   resetKaraoke();

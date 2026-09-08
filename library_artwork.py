@@ -1,8 +1,9 @@
 """Resolución y caché de carátulas para canciones locales.
 
 La biblioteca sigue siendo local: primero usamos el arte incrustado en el
-archivo y solo consultamos iTunes cuando no hay portada. Los aciertos y los
-fallos se recuerdan para no repetir procesos ni peticiones al navegar.
+archivo y solo consultamos catálogos (Deezer / iTunes) cuando no hay portada.
+Los aciertos y los fallos se recuerdan para no repetir procesos ni peticiones al navegar.
+Se valida la relevancia del título para evitar asociar portadas de canciones erróneas.
 """
 
 import hashlib
@@ -13,18 +14,65 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import unicodedata
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
-from app.config import AUDIO_EXTS, CANCIONES_DIR, COVERS_DIR
-from library_metadata import get_metadata
+_BASE_DIR = Path(__file__).resolve().parent
+CANCIONES_DIR = _BASE_DIR / "canciones"
+COVERS_DIR = _BASE_DIR / ".covers"
+AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".webm", ".ogg"}
+COVERS_DIR.mkdir(parents=True, exist_ok=True)
+
+from library_metadata import get_metadata, split_artists
 
 _CACHE_PATH = COVERS_DIR / "index.json"
 _LOCK = threading.Lock()
-_USER_AGENT = "Music-Lab/1.0 (local artwork resolver)"
+_USER_AGENT = "Music-Lab/1.0 (local artwork resolver; +https://github.com)"
 # Recortes anteriores a la marca kind/clip_of: el origen se deduce del nombre.
 _CLIP_SUFFIX_RE = re.compile(r"\s*\(recorte\)(\s*\(\d+\))?$", re.IGNORECASE)
+
+_STOPWORDS = {
+    "de", "la", "el", "los", "las", "un", "una", "unos", "unas", "en", "y", "del", "al",
+    "the", "a", "an", "and", "in", "on", "of", "to", "for", "with", "by", "from",
+}
+
+
+def _normalize_tokens(text: str) -> set[str]:
+    """Extrae palabras normalizadas sin tildes ni caracteres especiales."""
+    text = unicodedata.normalize("NFKD", text or "")
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    return set(text.split())
+
+
+def _match_score(target_title: str, target_artist: str, cand_title: str, cand_artist: str) -> float:
+    """Calcula similitud de relevancia entre la canción buscada y el candidato del catálogo.
+    Si no hay coincidencia en las palabras clave del título, devuelve 0.0 para evitar
+    asignar portadas completamente ajenas (ej. álbum OASIS para Volando Remix).
+    """
+    t_words = _normalize_tokens(target_title)
+    c_words = _normalize_tokens(cand_title)
+    if not t_words:
+        return 0.0
+
+    meaningful_t = {w for w in t_words if len(w) > 1 and w not in _STOPWORDS}
+    if not meaningful_t:
+        meaningful_t = t_words
+
+    intersection = meaningful_t.intersection(c_words)
+    title_score = len(intersection) / len(meaningful_t)
+    if title_score == 0:
+        return 0.0
+
+    a_words = _normalize_tokens(target_artist)
+    c_a_words = _normalize_tokens(cand_artist)
+    meaningful_a = {w for w in a_words if len(w) > 1 and w not in _STOPWORDS}
+    artist_overlap = bool(meaningful_a.intersection(c_a_words)) if meaningful_a else True
+
+    return round(title_score * 0.7 + (0.3 if artist_overlap else 0.0), 3)
 
 
 def _cache_key(song: Path) -> str:
@@ -73,32 +121,130 @@ def _extract_embedded(song: Path, output: Path) -> bool:
         return False
 
 
-def _download_catalog_artwork(song: Path, output: Path) -> bool:
-    """Busca una portada como respaldo; un error de red no afecta la biblioteca."""
-    metadata = get_metadata(song)
-    query = " ".join(filter(None, [metadata.get("artist"), metadata.get("title")]))
-    if not query:
+def _download_image(url: str, output: Path) -> bool:
+    """Descarga una imagen validando su contenido."""
+    if not url:
         return False
     try:
-        search_url = "https://itunes.apple.com/search?" + urlencode({
-            "term": query, "entity": "song", "limit": 1,
-        })
-        request = Request(search_url, headers={"User-Agent": _USER_AGENT})
-        with urlopen(request, timeout=4) as response:
-            results = json.loads(response.read().decode("utf-8")).get("results", [])
-        artwork_url = (results[0].get("artworkUrl100") if results else "") or ""
-        if not artwork_url:
-            return False
-        artwork_url = artwork_url.replace("100x100bb", "600x600bb")
-        request = Request(artwork_url, headers={"User-Agent": _USER_AGENT})
+        request = Request(url, headers={"User-Agent": _USER_AGENT})
         with urlopen(request, timeout=6) as response:
-            data = response.read(3_000_000)
-        if len(data) < 1024 or not data.startswith(b"\xff\xd8"):
+            data = response.read(6_000_000)
+        # Validar tamaño mínimo y encabezado JPEG (\xff\xd8) o PNG (\x89PNG)
+        if len(data) < 1024:
+            return False
+        if not (data.startswith(b"\xff\xd8") or data.startswith(b"\x89PNG")):
             return False
         output.write_bytes(data)
         return True
-    except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+    except (OSError, ValueError, UnicodeDecodeError):
         return False
+
+
+def search_catalog_covers(title: str, artist: str = "", limit: int = 8) -> list[dict]:
+    """Busca carátulas candidatas en Deezer e iTunes con evaluación de relevancia."""
+    title = (title or "").strip()
+    artist = (artist or "").strip()
+    if not title:
+        return []
+
+    candidates: list[dict] = []
+    seen_urls: set[str] = set()
+
+    artists_list = split_artists(artist)
+    primary_artist = artists_list[0] if artists_list else ""
+
+    queries = []
+    if primary_artist:
+        queries.append(f"{title} {primary_artist}")
+    if artist and artist != primary_artist:
+        queries.append(f"{title} {artist}")
+    queries.append(title)
+
+    headers = {"User-Agent": _USER_AGENT}
+
+    # 1. Deezer (Excelente cobertura de música urbana/latina, carátulas 1000x1000 sin compresión)
+    for q in queries[:2]:
+        try:
+            url = f"https://api.deezer.com/search?q={quote(q)}"
+            req = Request(url, headers=headers)
+            with urlopen(req, timeout=4) as resp:
+                data = json.loads(resp.read().decode("utf-8")).get("data", [])
+            for item in data[:6]:
+                album = item.get("album") or {}
+                cover_url = album.get("cover_xl") or album.get("cover_big")
+                if not cover_url or cover_url in seen_urls:
+                    continue
+                c_title = item.get("title", "")
+                c_artist = (item.get("artist") or {}).get("name", "")
+                c_album = album.get("title", "")
+                score = _match_score(title, artist, c_title, c_artist)
+                if score >= 0.35:
+                    seen_urls.add(cover_url)
+                    candidates.append({
+                        "title": c_title,
+                        "artist": c_artist,
+                        "album": c_album,
+                        "cover_url": cover_url,
+                        "preview_url": album.get("cover_medium") or cover_url,
+                        "source": "deezer",
+                        "score": score,
+                    })
+        except Exception:
+            pass
+
+    # 2. iTunes (Respaldo secundario)
+    for q in queries[:2]:
+        try:
+            url = "https://itunes.apple.com/search?" + urlencode({
+                "term": q, "entity": "song", "limit": 5,
+            })
+            req = Request(url, headers=headers)
+            with urlopen(req, timeout=4) as resp:
+                results = json.loads(resp.read().decode("utf-8")).get("results", [])
+            for item in results:
+                raw_cover = item.get("artworkUrl100", "")
+                if not raw_cover:
+                    continue
+                cover_url = raw_cover.replace("100x100bb", "600x600bb")
+                if cover_url in seen_urls:
+                    continue
+                c_title = item.get("trackName", "")
+                c_artist = item.get("artistName", "")
+                c_album = item.get("collectionName", "")
+                score = _match_score(title, artist, c_title, c_artist)
+                if score >= 0.35:
+                    seen_urls.add(cover_url)
+                    candidates.append({
+                        "title": c_title,
+                        "artist": c_artist,
+                        "album": c_album,
+                        "cover_url": cover_url,
+                        "preview_url": raw_cover,
+                        "source": "itunes",
+                        "score": score,
+                    })
+        except Exception:
+            pass
+
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    return candidates[:limit]
+
+
+def _download_catalog_artwork(song: Path, output: Path) -> bool:
+    """Busca una portada en catálogos y la descarga solo si supera el umbral de relevancia."""
+    metadata = get_metadata(song)
+    title = metadata.get("title") or ""
+    artist = metadata.get("artist") or ""
+    if not title:
+        return False
+
+    candidates = search_catalog_covers(title, artist, limit=6)
+    for candidate in candidates:
+        if candidate.get("score", 0.0) >= 0.45:
+            cover_url = candidate.get("cover_url")
+            if cover_url and _download_image(cover_url, output):
+                return True
+    return False
 
 
 def _song_by_stem(stem: str) -> Path | None:
@@ -124,9 +270,6 @@ def _origin_of_clip(song: Path, metadata: dict) -> Path | None:
 
 def resolve_cover(song: Path) -> Path | None:
     """Devuelve una carátula local o ``None`` si corresponde usar el fallback UI."""
-    # Un recorte usa la portada de su tema original: buscarla por título en el
-    # catálogo daría un resultado erróneo (o ninguno) por el sufijo del nombre.
-    # Se resuelve antes de tomar el lock porque esta llamada es recursiva.
     origen = _origin_of_clip(song, get_metadata(song))
     cover_origen = resolve_cover(origen) if origen else None
 
@@ -136,10 +279,11 @@ def resolve_cover(song: Path) -> Path | None:
         cache = _read_cache()
         entry = cache.get(song.stem, {})
         vigente = entry.get("fingerprint") == fingerprint
-        # Un recorte guardado en caché antes de que heredara la portada (o que
-        # se quedó sin ninguna) debe reevaluarse una vez.
-        if vigente and cover_origen is not None and entry.get("source") not in ("embedded", "clip-origin"):
+        # Si la canción es un recorte y el tema original tiene portada, asegurarse
+        # de que el recorte mantenga la portada del original actualizada.
+        if cover_origen is not None and (not vigente or entry.get("source") != "clip-origin"):
             vigente = False
+
         if vigente:
             if entry.get("status") == "ready" and output.is_file():
                 return output
@@ -149,13 +293,16 @@ def resolve_cover(song: Path) -> Path | None:
         output.unlink(missing_ok=True)
         temp_output = output.with_suffix(".tmp.jpg")
         temp_output.unlink(missing_ok=True)
-        source = "embedded" if _extract_embedded(song, temp_output) else ""
-        if not source and cover_origen is not None:
+
+        source = ""
+        if cover_origen is not None:
             try:
                 shutil.copyfile(cover_origen, temp_output)
                 source = "clip-origin"
             except OSError:
                 source = ""
+        if not source:
+            source = "embedded" if _extract_embedded(song, temp_output) else ""
         if not source:
             source = "catalog"
         if source == "catalog" and not _download_catalog_artwork(song, temp_output):
@@ -168,6 +315,37 @@ def resolve_cover(song: Path) -> Path | None:
         cache[song.stem] = {"fingerprint": fingerprint, "status": "ready", "source": source}
         _write_cache(cache)
         return output
+
+
+def apply_custom_cover(song: Path, image_data: bytes | None = None, image_url: str | None = None) -> bool:
+    """Aplica una carátula personalizada (por bytes o descargada de una URL) y actualiza la caché."""
+    output = _cover_path(song)
+    temp_output = output.with_suffix(".tmp.jpg")
+    temp_output.unlink(missing_ok=True)
+
+    success = False
+    if image_url:
+        success = _download_image(image_url, temp_output)
+    elif image_data:
+        if len(image_data) >= 1024 and (image_data.startswith(b"\xff\xd8") or image_data.startswith(b"\x89PNG")):
+            temp_output.write_bytes(image_data)
+            success = True
+
+    if not success or not temp_output.is_file():
+        temp_output.unlink(missing_ok=True)
+        return False
+
+    with _LOCK:
+        os.replace(temp_output, output)
+        cache = _read_cache()
+        cache[song.stem] = {
+            "fingerprint": song.stat().st_mtime_ns,
+            "status": "ready",
+            "source": "manual",
+        }
+        _write_cache(cache)
+
+    return True
 
 
 def invalidate_cover(song: Path) -> None:

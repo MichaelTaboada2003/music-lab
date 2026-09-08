@@ -10,14 +10,14 @@ Endpoints de canciones y letras:
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from audio_downloader import is_url, resolve_audio_source
 from audio_trim import MIN_DURATION, trim_audio
 from library_metadata import get_metadata, mark_as_clip, save_metadata
-from library_artwork import invalidate_cover, resolve_cover
+from library_artwork import apply_custom_cover, invalidate_cover, resolve_cover, search_catalog_covers
 from lyrics_sync import sync_cache_is_current
 
 from ..config import CANCIONES_DIR
@@ -118,6 +118,7 @@ def api_guardar_metadata(stem: str, payload: MetadataRequest):
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     invalidate_cover(song)
+    resolve_cover(song)
     return {"status": "ok", "metadata": metadata}
 
 
@@ -138,6 +139,53 @@ def api_cover_cancion(stem: str):
         media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+@router.post("/api/canciones/{stem}/cover/refresh")
+def api_refresh_cover(stem: str):
+    song = find_song(stem)
+    invalidate_cover(song)
+    cover = resolve_cover(song)
+    return {"status": "ok", "has_cover": bool(cover)}
+
+
+@router.get("/api/canciones/{stem}/cover/search")
+def api_search_cover(stem: str, q: Optional[str] = None):
+    song = find_song(stem)
+    metadata = get_metadata(song)
+    title = (q or "").strip() or metadata.get("title") or song.stem
+    artist = metadata.get("artist") or ""
+    candidates = search_catalog_covers(title, artist, limit=8)
+    return {"candidates": candidates}
+
+
+class CoverApplyRequest(BaseModel):
+    image_url: Optional[str] = None
+
+
+@router.post("/api/canciones/{stem}/cover/apply")
+def api_apply_cover(stem: str, payload: CoverApplyRequest):
+    song = find_song(stem)
+    if not payload.image_url:
+        raise HTTPException(400, "Debe proporcionar una URL de imagen.")
+    success = apply_custom_cover(song, image_url=payload.image_url)
+    if not success:
+        raise HTTPException(400, "No se pudo descargar o procesar la imagen seleccionada.")
+    return {"status": "ok"}
+
+
+@router.post("/api/canciones/{stem}/cover/upload")
+async def api_upload_cover(stem: str, request: Request):
+    song = find_song(stem)
+    contents = await request.body()
+    if len(contents) > 10_000_000:
+        raise HTTPException(400, "La imagen es demasiado pesada (máximo 10MB).")
+    if not contents:
+        raise HTTPException(400, "No se recibieron datos de imagen.")
+    success = apply_custom_cover(song, image_data=contents)
+    if not success:
+        raise HTTPException(400, "El archivo subido no es una imagen válida (debe ser JPG o PNG).")
+    return {"status": "ok"}
 
 
 class RecorteRequest(BaseModel):

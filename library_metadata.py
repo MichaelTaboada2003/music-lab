@@ -13,12 +13,35 @@ _LOCK = threading.Lock()
 # Los recortes creados antes de que existiera la marca solo se reconocen por el
 # sufijo con el que los bautiza audio_trim.
 _CLIP_SUFFIX_RE = re.compile(r"\(recorte\)(\s*\(\d+\))?$", re.IGNORECASE)
-_NOISE_RE = re.compile(r"\s*(?:\[?(?:official\s*)?(?:audio|video|lyrics?|video\s*letra)\]?|\(\s*(?:official\s*)?(?:audio|video|lyrics?)\s*\))\s*$", re.IGNORECASE)
+_NOISE_PATTERNS = [
+    # Variantes en paréntesis o corchetes: inglés y español
+    r"\s*[\(\[](?:official\s*)?(?:music\s*)?(?:video|audio|lyrics?|lyric\s*video|video\s*letra|video\s*con\s*letra|visualizer)[\)\]]",
+    r"\s*[\(\[](?:video|audio|letra|video\s*letra|video\s*con\s*letra)\s*oficial[\)\]]",
+    r"\s*[\(\[](?:en\s*vivo|en\s*directo|live(?:\s*session)?|remaster(?:ed|izado)?)[\)\]]",
+    r"\s*[\(\[](?:lyrics?|letra|audio|video)[\)\]]",
+    # Sufijo de álbum o canal separado por pleca | o ｜
+    r"\s*[\|｜].*$",
+]
+_NOISE_RE = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
+_TRAILING_LYRICS_RE = re.compile(r"\s+lyrics?$", re.IGNORECASE)
 
 
 def _clean(value: str) -> str:
-    value = _NOISE_RE.sub("", value or "")
+    if not value:
+        return ""
+    value = _NOISE_RE.sub("", value)
+    value = _TRAILING_LYRICS_RE.sub("", value)
     return re.sub(r"\s+", " ", value).strip(" -_.,")
+
+
+def split_artists(artist_str: str) -> list[str]:
+    """Separa una cadena de artistas con colaboradores ('x', 'feat', 'ft', '&', ',')."""
+    if not artist_str:
+        return []
+    s = re.sub(r"[\(\[]\s*(?:feat\.?|ft\.?|featuring|con)\s+([^\]\)]+)[\)\]]", r", \1", artist_str, flags=re.IGNORECASE)
+    normalized = re.sub(r"\s+(?:feat\.?|ft\.?|featuring|con|x|&)\s+", ",", s, flags=re.IGNORECASE)
+    parts = [_clean(p) for p in normalized.split(",")]
+    return [p for p in parts if p]
 
 
 def _read_overrides() -> dict:

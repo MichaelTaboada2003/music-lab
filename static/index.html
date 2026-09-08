@@ -134,6 +134,7 @@
                   </div>
                   <div class="metadata-actions">
                     <button id="metadataSaveBtn" class="btn-ghost" type="button">Guardar ficha</button>
+                    <button id="coverModalOpenBtn" class="btn-ghost" type="button">Cambiar portada</button>
                     <span class="metadata-status" id="metadataStatus" aria-live="polite"></span>
                   </div>
                 </div>
@@ -705,9 +706,40 @@
       <div class="mini-copy">
         <span id="miniSongTitle">Sin canción</span>
         <span id="miniArtistName">Music Lab</span>
-      </div>
       <button class="mini-play" id="miniPlayBtn" type="button" title="Reproducir o pausar"></button>
     </div>
+
+    <!-- Dialog para cambiar/buscar carátula -->
+    <dialog id="coverDialog" class="cover-dialog">
+      <div class="cover-dialog-content">
+        <div class="cover-dialog-header">
+          <div>
+            <h3 class="cover-dialog-title">Cambiar portada</h3>
+            <p class="cover-dialog-subtitle">Selecciona una imagen encontrada en Deezer / iTunes o sube una propia</p>
+          </div>
+          <button id="coverDialogCloseBtn" class="cover-dialog-close" type="button" aria-label="Cerrar">&times;</button>
+        </div>
+
+        <div class="cover-dialog-search-row">
+          <input type="text" id="coverDialogQuery" class="cover-dialog-input" placeholder="Buscar por título o artista..." />
+          <button type="button" id="coverDialogSearchBtn" class="btn-ghost">Buscar</button>
+        </div>
+
+        <div class="cover-dialog-results" id="coverDialogResults">
+          <div class="cover-dialog-empty">Cargando sugerencias de carátulas…</div>
+        </div>
+
+        <div class="cover-dialog-footer">
+          <label class="btn-ghost cover-upload-label">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            Subir imagen local
+            <input type="file" id="coverDialogFileInput" accept="image/jpeg,image/png,image/webp" hidden />
+          </label>
+          <button type="button" id="coverDialogAutoBtn" class="btn-ghost">Rebuscar automático</button>
+          <span id="coverDialogStatus" class="cover-dialog-status" aria-live="polite"></span>
+        </div>
+      </div>
+    </dialog>
   </div>
 
   <script type="module" src="/static/js/main.js"></script>
