@@ -175,16 +175,52 @@ def parse_lyrics_file(path) -> list:
     return stanzas
 
 
+def _select_whisper_device() -> str:
+    """Elige dónde ejecutar Whisper: la GPU de Apple Silicon si está presente.
+
+    Ojo con la precisión: whisper-timestamped activa fp16 en cuanto el modelo
+    deja la CPU (`fp16 = model.device != cpu`), y en media precisión la
+    transcripción *cambia* —se pierden tildes y los tiempos se desplazan
+    decenas de milisegundos—. Por eso `_transcribe` fuerza fp16=False: MPS en
+    fp32 es la única combinación verificada como idéntica a la CPU, y sigue
+    siendo bastante más rápida.
+
+    `MUSIC_LAB_WHISPER_DEVICE` permite forzar el dispositivo a mano.
+    """
+    override = os.environ.get("MUSIC_LAB_WHISPER_DEVICE", "").strip().lower()
+    if override:
+        return override
+    try:
+        import torch
+
+        if torch.backends.mps.is_available():
+            return "mps"
+    except Exception:
+        # Sin torch utilizable no hay aceleración posible; la CPU siempre va.
+        pass
+    return "cpu"
+
+
 def _get_model(model_name: str):
-    if model_name not in _MODEL_CACHE:
+    device = _select_whisper_device()
+    key = (model_name, device)
+    if key not in _MODEL_CACHE:
         if whisper is None:
             raise RuntimeError(
                 "whisper_timestamped no está instalado. "
                 "Instálalo con: pip install whisper-timestamped"
             )
-        print(f"Cargando modelo Whisper '{model_name}' (puede tardar la primera vez)...")
-        _MODEL_CACHE[model_name] = whisper.load_model(model_name, device="cpu")
-    return _MODEL_CACHE[model_name]
+        print(f"Cargando modelo Whisper '{model_name}' en {device} (puede tardar la primera vez)...")
+        try:
+            _MODEL_CACHE[key] = whisper.load_model(model_name, device=device)
+        except Exception as error:
+            if device == "cpu":
+                raise
+            # Un backend caprichoso no debe impedir sincronizar: se reintenta
+            # en CPU, que es el camino de referencia.
+            print(f"No se pudo usar {device} ({error}); se continúa en CPU.")
+            _MODEL_CACHE[key] = whisper.load_model(model_name, device="cpu")
+    return _MODEL_CACHE[key]
 
 
 def _transcribe(
@@ -203,7 +239,9 @@ def _transcribe(
     # y evita segmentos comprimidos. El modelo sigue condicionado por su texto
     # anterior para mantener continuidad; el alineador global resuelve luego
     # las repeticiones de coros.
-    kwargs = {"beam_size": 5}
+    # fp16=False siempre: en fp32 la salida de MPS es idéntica a la de CPU
+    # (mismo texto, mismos tiempos). Ver `_select_whisper_device`.
+    kwargs = {"beam_size": 5, "fp16": False}
     if vad:
         # VAD (detección de voz): descarta las zonas sin voz antes de
         # transcribir, evitando que Whisper "invente" letra sobre los

@@ -1,5 +1,9 @@
+import os
 import unittest
 
+import numpy as np
+
+import lyrics_sync
 from lyrics_sync import (
     _align_word_sequences,
     _drop_unreliable_anchors,
@@ -70,6 +74,53 @@ class LyricsSyncAlignmentTests(unittest.TestCase):
 
         self.assertEqual(report["label"], "revisar")
         self.assertFalse(report["playable"])
+
+
+class WhisperPrecisionTests(unittest.TestCase):
+    """Whisper en media precisión transcribe distinto —pierde tildes y mueve
+    los tiempos hasta 20 ms—, así que la precisión completa forma parte del
+    contrato de sincronía, no es un detalle de rendimiento."""
+
+    def test_la_transcripcion_nunca_pide_media_precision(self):
+        captured = {}
+
+        class _FakeWhisper:
+            @staticmethod
+            def load_model(name, device="cpu"):
+                return object()
+
+            @staticmethod
+            def load_audio(path):
+                return np.zeros(lyrics_sync.WHISPER_SAMPLE_RATE * 2, dtype=np.float32)
+
+            @staticmethod
+            def transcribe(model, audio, **kwargs):
+                captured.update(kwargs)
+                return {"segments": [], "text": ""}
+
+        original_whisper = lyrics_sync.whisper
+        original_cache = dict(lyrics_sync._MODEL_CACHE)
+        lyrics_sync.whisper = _FakeWhisper
+        lyrics_sync._MODEL_CACHE.clear()
+        try:
+            lyrics_sync._transcribe("audio.flac", "es", "medium")
+        finally:
+            lyrics_sync.whisper = original_whisper
+            lyrics_sync._MODEL_CACHE.clear()
+            lyrics_sync._MODEL_CACHE.update(original_cache)
+
+        self.assertIs(captured.get("fp16"), False)
+
+    def test_el_dispositivo_se_puede_forzar_por_entorno(self):
+        previo = os.environ.get("MUSIC_LAB_WHISPER_DEVICE")
+        os.environ["MUSIC_LAB_WHISPER_DEVICE"] = "cpu"
+        try:
+            self.assertEqual(lyrics_sync._select_whisper_device(), "cpu")
+        finally:
+            if previo is None:
+                os.environ.pop("MUSIC_LAB_WHISPER_DEVICE", None)
+            else:
+                os.environ["MUSIC_LAB_WHISPER_DEVICE"] = previo
 
 
 if __name__ == "__main__":
