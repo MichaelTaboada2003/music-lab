@@ -18,6 +18,27 @@ Ejecutar con:
     uvicorn app:app --reload
 """
 
+import errno
+import os
+import sys
+
+def _sanitize_stdio() -> None:
+    """Protege la app contra BrokenPipeError (Errno 32) si se corre como demonio o si se cerró la terminal."""
+    for fd, name in ((1, "stdout"), (2, "stderr")):
+        try:
+            os.write(fd, b"")
+        except OSError as e:
+            if e.errno == errno.EPIPE:
+                try:
+                    devnull = os.open(os.devnull, os.O_WRONLY)
+                    os.dup2(devnull, fd)
+                    os.close(devnull)
+                    setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+                except Exception:
+                    pass
+
+_sanitize_stdio()
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles

@@ -18,8 +18,35 @@ Uso como librería:
 """
 
 import argparse
+import errno
+import os
 import re
+import sys
 from pathlib import Path
+
+def _sanitize_stdio() -> None:
+    """Redirige stdout y stderr a devnull si la tubería fue cerrada por el proceso padre (EPIPE/Errno 32)."""
+    for fd, name in ((1, "stdout"), (2, "stderr")):
+        try:
+            os.write(fd, b"")
+        except OSError as e:
+            if e.errno == errno.EPIPE:
+                try:
+                    devnull = os.open(os.devnull, os.O_WRONLY)
+                    os.dup2(devnull, fd)
+                    os.close(devnull)
+                    setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+                except Exception:
+                    pass
+
+_sanitize_stdio()
+
+def _safe_print(*args, **kwargs) -> None:
+    """Imprime de forma segura ignorando BrokenPipeError si la salida estándar está cerrada."""
+    try:
+        print(*args, **kwargs)
+    except (BrokenPipeError, OSError):
+        pass
 
 try:
     import yt_dlp
@@ -56,7 +83,7 @@ def download_audio(url: str, output_dir: str = ".", filename: str = None,
         stem = Path(filename).stem
         target = output_dir / f"{stem}.mp3"
         if target.is_file() and not force:
-            print(f"El audio ya existe, usando cache: {target}")
+            _safe_print(f"El audio ya existe, usando cache: {target}")
             return target
         outtmpl = str(output_dir / f"{stem}.%(ext)s")
     else:
@@ -73,21 +100,27 @@ def download_audio(url: str, output_dir: str = ".", filename: str = None,
         "noplaylist": True,
         "quiet": quiet,
         "no_warnings": quiet,
+        "remote_components": ["ejs:github"],
     }
 
     # YouTube capa distintos clientes según el video. Probamos varias combinaciones
     # de player_client como fallback (algunos videos solo dan URL válida con
-    # ciertos clientes y no con otros). Incluimos web_music/web_safari/mweb que
-    # a veces funcionan cuando los "app clients" (android/ios/tv) fallan por
-    # DRM o por challenges de firma sin resolver.
+    # ciertos clientes y no con otros). Priorizamos clientes modernos y estables
+    # como web_safari y android_vr que no requieren PO tokens estrictos.
     client_attempts = [
+        "web_safari",
+        "android_vr",
+        "web_music",
+        "web",
+        "android",
+        "mweb",
+        "ios",
+        "tv",
         None,
-        "android", "ios", "tv",
-        "web_music", "web_safari", "mweb", "web",
     ]
     last_error = None
 
-    print(f"Descargando audio de: {url}")
+    _safe_print(f"Descargando audio de: {url}")
     for client in client_attempts:
         ydl_opts = dict(base_opts)
         if client:
@@ -101,12 +134,12 @@ def download_audio(url: str, output_dir: str = ".", filename: str = None,
                     base = ydl.prepare_filename(info)
                     result_path = Path(base).with_suffix(".mp3")
             if result_path.is_file():
-                print(f"Audio listo: {result_path}")
+                _safe_print(f"Audio listo: {result_path}")
                 return result_path
-        except yt_dlp.utils.DownloadError as e:
+        except (yt_dlp.utils.DownloadError, BrokenPipeError, OSError) as e:
             last_error = e
             if client:
-                print(f"Falló con cliente '{client}', probando siguiente opción...")
+                _safe_print(f"Falló con cliente '{client}', probando siguiente opción... ({e})")
             continue
 
     # Si el error es de DRM/protección, damos un mensaje corto y accionable
