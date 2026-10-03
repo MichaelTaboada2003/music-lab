@@ -97,7 +97,9 @@ def _infer_from_filename(stem: str) -> tuple[str, str]:
         return pieces[0], pieces[1]
     left, right = _clean(raw_left), _clean(raw_right)
     # En archivos de lyric-video el título puede venir antes y en mayúsculas.
-    if left.isupper():
+    # Si ambos lados van en mayúsculas ("BAD BUNNY - LA DROGA") no hay pista de
+    # orden: se asume el estándar "Artista - Título".
+    if left.isupper() and not right.isupper():
         return left, right
     return right, left
 

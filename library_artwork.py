@@ -28,6 +28,8 @@ COVERS_DIR.mkdir(parents=True, exist_ok=True)
 from library_metadata import get_metadata, split_artists
 
 _CACHE_PATH = COVERS_DIR / "index.json"
+# Subir al cambiar el criterio de búsqueda: reevalúa portadas de catálogo y fallos previos.
+_CATALOG_VERSION = 2
 _LOCK = threading.Lock()
 _USER_AGENT = "Music-Lab/1.0 (local artwork resolver; +https://github.com)"
 # Recortes anteriores a la marca kind/clip_of: el origen se deduce del nombre.
@@ -39,8 +41,12 @@ _STOPWORDS = {
 }
 
 
+_FEAT_RE = re.compile(r"[\(\[]\s*(?:feat\.?|ft\.?|featuring|con|with)\s+[^\)\]]*[\)\]]", re.IGNORECASE)
+
+
 def _normalize_tokens(text: str) -> set[str]:
     """Extrae palabras normalizadas sin tildes ni caracteres especiales."""
+    text = _FEAT_RE.sub(" ", text or "")
     text = unicodedata.normalize("NFKD", text or "")
     text = "".join(c for c in text if not unicodedata.combining(c))
     text = text.lower()
@@ -63,16 +69,22 @@ def _match_score(target_title: str, target_artist: str, cand_title: str, cand_ar
         meaningful_t = t_words
 
     intersection = meaningful_t.intersection(c_words)
-    title_score = len(intersection) / len(meaningful_t)
-    if title_score == 0:
+    if not intersection:
         return 0.0
+    # Penaliza palabras extra del candidato ("La Droga (Adicto A Ti)" no es "La Droga").
+    c_meaningful = {w for w in c_words if len(w) > 1 and w not in _STOPWORDS} or c_words
+    title_score = len(intersection) / max(len(meaningful_t), len(c_meaningful))
 
     a_words = _normalize_tokens(target_artist)
     c_a_words = _normalize_tokens(cand_artist)
     meaningful_a = {w for w in a_words if len(w) > 1 and w not in _STOPWORDS}
     artist_overlap = bool(meaningful_a.intersection(c_a_words)) if meaningful_a else True
 
-    return round(title_score * 0.7 + (0.3 if artist_overlap else 0.0), 3)
+    score = title_score * 0.7 + (0.3 if artist_overlap else 0.0)
+    if meaningful_a and not artist_overlap:
+        # Mismo título de otro artista: nunca debe superar el umbral automático.
+        score = min(score, 0.4)
+    return round(score, 3)
 
 
 def _cache_key(song: Path) -> str:
@@ -188,6 +200,7 @@ def search_catalog_covers(title: str, artist: str = "", limit: int = 8) -> list[
                         "preview_url": album.get("cover_medium") or cover_url,
                         "source": "deezer",
                         "score": score,
+                        "rank": item.get("rank", 0) or 0,
                     })
         except Exception:
             pass
@@ -222,11 +235,12 @@ def search_catalog_covers(title: str, artist: str = "", limit: int = 8) -> list[
                         "preview_url": raw_cover,
                         "source": "itunes",
                         "score": score,
+                        "rank": 0,
                     })
         except Exception:
             pass
 
-    candidates.sort(key=lambda x: x["score"], reverse=True)
+    candidates.sort(key=lambda x: (x["score"], x["rank"]), reverse=True)
     return candidates[:limit]
 
 
@@ -279,6 +293,8 @@ def resolve_cover(song: Path) -> Path | None:
         cache = _read_cache()
         entry = cache.get(song.stem, {})
         vigente = entry.get("fingerprint") == fingerprint
+        if entry.get("source") == "catalog" or entry.get("status") == "missing":
+            vigente = vigente and entry.get("catalog_v") == _CATALOG_VERSION
         # Si la canción es un recorte y el tema original tiene portada, asegurarse
         # de que el recorte mantenga la portada del original actualizada.
         if cover_origen is not None and (not vigente or entry.get("source") != "clip-origin"):
@@ -307,12 +323,15 @@ def resolve_cover(song: Path) -> Path | None:
             source = "catalog"
         if source == "catalog" and not _download_catalog_artwork(song, temp_output):
             temp_output.unlink(missing_ok=True)
-            cache[song.stem] = {"fingerprint": fingerprint, "status": "missing"}
+            cache[song.stem] = {"fingerprint": fingerprint, "status": "missing", "catalog_v": _CATALOG_VERSION}
             _write_cache(cache)
             return None
 
         os.replace(temp_output, output)
-        cache[song.stem] = {"fingerprint": fingerprint, "status": "ready", "source": source}
+        cache[song.stem] = {
+            "fingerprint": fingerprint, "status": "ready", "source": source,
+            "catalog_v": _CATALOG_VERSION,
+        }
         _write_cache(cache)
         return output
 

@@ -42,3 +42,26 @@ def test_search_catalog_covers_relevance():
     for cand in candidates:
         assert cand["title"].lower() != "la canción"
         assert cand["album"].lower() != "oasis"
+
+
+def test_match_score_penaliza_mismo_titulo_de_otro_artista():
+    from library_artwork import _match_score
+    bueno = _match_score("LA DROGA", "BAD BUNNY", "LA DROGA", "Bad Bunny")
+    otro = _match_score("LA DROGA", "BAD BUNNY", "La Droga", "Charlie Chimi")
+    assert bueno == 1.0
+    assert otro < 0.45
+
+
+def test_match_score_penaliza_palabras_extra_del_candidato():
+    from library_artwork import _match_score
+    exacto = _match_score("La Droga", "", "La Droga", "X")
+    extra = _match_score("La Droga", "", "La Droga (Adicto A Ti)", "X")
+    assert exacto > extra
+
+
+def test_nombre_todo_mayusculas_se_lee_artista_titulo():
+    from library_metadata import _infer_from_filename
+    assert _infer_from_filename(
+        "BAD BUNNY - LA DROGA ｜ EL ÚLTIMO TOUR DEL MUNDO [Visualizer]"
+    ) == ("LA DROGA", "BAD BUNNY")
+    assert _infer_from_filename("MOJABI GHOST - Tainy, Bad Bunny") == ("MOJABI GHOST", "Tainy, Bad Bunny")
