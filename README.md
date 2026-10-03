@@ -60,8 +60,10 @@
 * **Exportación en Alta Definición (1080x1920):** Renderizado de fragmentos seleccionados en MP4 con sincronización lírica precisa.
 * **Múltiples Formatos Visuales:**
   * **Estilo Reproductor:** Estética *Glassmorphism* flotante con carátula, ecualizador reactivo y letra animada.
-  * **Estilo Terminal:** Estética *Cyberpunk / Hacker* con arte ASCII (PyFiglet), fuentes monoespaciadas y trazas de consola.
-* **Personalización Total:** Tipografías configurables, escalas de texto y temas de color (Terminal Signal, Medianoche Neon, Atardecer Pulse, Nube Frost).
+  * **Estilo Terminal:** Editor de código estilo Neovim: líneas numeradas, línea activa resaltada, cursor de bloque con brillo, barra de estado con modo, tiempo y progreso, y acabado CRT sutil.
+  * **Estilo Color:** Póster tipográfico con el fondo y el color de letra que elijas (o una paleta sugerida): letra grande con relleno suave por palabra, desplazamiento animado entre versos, mini portada y progreso.
+* **Vista previa fiel:** Color y Terminal se previsualizan con frames del mismo renderizador que exporta el video.
+* **Personalización Total:** Tipografías configurables, escalas de texto y temas de color del Terminal (Terminal Signal, Medianoche Neon, Atardecer Pulse, Nube Frost).
 
 ### 🔍 4. Módulo Descubrir & Spotify Sync
 * **Integración Spotify Web API:** Autenticación OAuth 2.0 para explorar canciones, álbumes y playlists populares.
@@ -192,6 +194,7 @@ music-lab/
 ├── lyrics_sync.py              # Pipeline Whisper + VAD + Alignment
 ├── music_lab.py                # Lanzador de escritorio
 ├── pyproject.toml              # Definición de dependencias y proyecto
+├── lyric_styles.py             # Renderizadores de los formatos Color y Terminal
 └── tiktok_generator.py         # Motor de generación de video con PIL/MoviePy
 ```
 

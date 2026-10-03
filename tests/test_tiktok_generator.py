@@ -294,39 +294,103 @@ class TikTokThemeTests(unittest.TestCase):
             )
 
 
+def _changed_pixels(frame, reference, threshold=25):
+    return int((np.abs(frame.astype(int) - reference.astype(int)).max(axis=2) > threshold).sum())
+
+
 class ColorFormatTests(unittest.TestCase):
     BG = "#7B2FF7"
     TEXT = "#FFE600"
 
-    def _frame(self, t, **kwargs):
-        stanzas = [[_line("voy a estar contigo hasta el final", 0.0, 4.0)]]
+    def _frame(self, t, stanzas=None, **kwargs):
+        if stanzas is None:
+            stanzas = [[_line("voy a estar contigo hasta el final", 0.0, 4.0)]]
         return generator.make_karaoke_frame(
-            stanzas, t, generator._build_fonts("modern", "balanced"),
-            video_size=generator.VIDEO_SIZE, layout_style="color",
-            bg_color=self.BG, text_color=self.TEXT, **kwargs,
+            stanzas, t, None, video_size=generator.VIDEO_SIZE, layout_style="color",
+            bg_color=self.BG, text_color=self.TEXT, title="LA DROGA", artist="Bad Bunny", **kwargs,
         )
 
-    def test_frame_usa_solo_fondo_y_color_de_letra(self):
+    def test_frame_es_vertical_y_conserva_el_color_de_fondo(self):
         frame = self._frame(2.0)
         self.assertEqual(frame.shape, (1920, 1080, 3))
-        bg = generator.parse_hex_color(self.BG)
-        text = generator.parse_hex_color(self.TEXT)
-        self.assertEqual(tuple(frame[0, 0]), bg)
-        colors = {tuple(c) for c in frame.reshape(-1, 3)[::97]}
-        self.assertIn(text, colors)
-        self.assertIn(generator._color_format_palette(self.BG, self.TEXT)["future"], colors)
+        bg = np.array(generator.parse_hex_color(self.BG))
+        # Luz, viñeta y grano matizan el fondo, pero no cambian su tono.
+        self.assertLess(np.abs(frame[900, 20].astype(int) - bg).max(), 70)
+
+    def test_la_palabra_cantada_usa_el_color_de_letra(self):
+        frame = self._frame(3.9)
+        text = np.array(generator.parse_hex_color(self.TEXT))
+        near = (np.abs(frame.astype(int) - text).max(axis=2) < 12).sum()
+        self.assertGreater(near, 2000)
 
     def test_modo_escritura_no_muestra_palabras_futuras(self):
-        karaoke = self._frame(0.1, lyric_style="karaoke")
-        typing = self._frame(0.1, lyric_style="typing")
-        bg = np.array(generator.parse_hex_color(self.BG))
-        self.assertGreater((karaoke != bg).any(axis=2).sum(), (typing != bg).any(axis=2).sum())
+        empty = self._frame(0.1, stanzas=[])
+        karaoke = _changed_pixels(self._frame(0.1, lyric_style="karaoke"), empty)
+        typing = _changed_pixels(self._frame(0.1, lyric_style="typing"), empty)
+        self.assertGreater(karaoke, typing)
+
+    def test_una_linea_por_pantalla_dibuja_solo_el_verso_activo(self):
+        stanzas = [[_line("primer verso largo", 0.0, 3.0), _line("segundo verso aparte", 3.0, 3.0)]]
+        empty = self._frame(1.0, stanzas=[])
+
+        def extent(frame):
+            rows = np.where((np.abs(frame.astype(int) - empty.astype(int)).max(axis=2) > 25)[300:1380].any(axis=1))[0]
+            return int(rows.max() - rows.min()) if len(rows) else 0
+
+        block = extent(self._frame(1.0, stanzas=stanzas, lyric_flow="block"))
+        single = extent(self._frame(1.0, stanzas=stanzas, lyric_flow="line"))
+        self.assertGreater(block, single)
 
     def test_color_invalido_se_rechaza(self):
         for bad in ("", "red", "#12345", "#GGGGGG"):
             with self.assertRaises(ValueError):
                 generator.parse_hex_color(bad)
         self.assertEqual(generator.parse_hex_color("ffe600"), (255, 230, 0))
+
+
+class TerminalFormatTests(unittest.TestCase):
+    STANZAS = [[
+        _line("otro fili pa olvidarte", 0.0, 3.0),
+        _line("pero si me llamas voy a buscarte", 3.0, 3.0),
+        _line("tu eres mala y no puedo soltarte", 6.0, 3.0),
+    ]]
+
+    def _frame(self, t, stanzas=None, theme="terminal", **kwargs):
+        return generator.make_karaoke_frame(
+            self.STANZAS if stanzas is None else stanzas, t, None,
+            video_size=generator.VIDEO_SIZE, layout_style="terminal", theme_name=theme,
+            title="LA DROGA", artist="Bad Bunny", **kwargs,
+        )
+
+    def test_todos_los_temas_y_distribuciones_renderizan(self):
+        for theme in generator.VIDEO_THEMES:
+            for flow in ("block", "line"):
+                frame = self._frame(4.0, theme=theme, lyric_flow=flow)
+                self.assertEqual(frame.shape, (1920, 1080, 3))
+
+    def test_resalta_la_linea_activa(self):
+        empty = self._frame(4.0, stanzas=[])
+        frame = self._frame(4.0)
+        self.assertGreater(_changed_pixels(frame, empty, threshold=12), 20000)
+        band_row = frame[:, 540]
+        # La banda de la línea activa es más clara que el fondo del editor.
+        self.assertGreater(int(np.abs(frame.astype(int) - empty.astype(int)).max(axis=2)[:, 4].sum()), 0)
+        self.assertEqual(band_row.shape[1], 3)
+
+    def test_modo_escritura_oculta_las_palabras_futuras(self):
+        empty = self._frame(0.1, stanzas=[])
+        karaoke = _changed_pixels(self._frame(0.1, lyric_style="karaoke"), empty)
+        typing = _changed_pixels(self._frame(0.1, lyric_style="typing"), empty)
+        self.assertGreater(karaoke, typing)
+
+    def test_el_tiempo_avanza_la_barra_de_progreso(self):
+        early = self._frame(1.0, fragment_start=0.0, fragment_end=9.0)
+        late = self._frame(8.0, fragment_start=0.0, fragment_end=9.0)
+        # La línea de reproducción está justo sobre la barra de estado.
+        row = 1440 - 5
+        status = np.array(generator.VIDEO_THEMES["terminal"]["status"])
+        filled = lambda f: int((np.abs(f[row].astype(int) - status).max(axis=1) < 20).sum())
+        self.assertGreater(filled(late), filled(early))
 
 
 if __name__ == "__main__":
