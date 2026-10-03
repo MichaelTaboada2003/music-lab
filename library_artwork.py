@@ -296,8 +296,14 @@ def resolve_cover(song: Path) -> Path | None:
         if entry.get("source") == "catalog" or entry.get("status") == "missing":
             vigente = vigente and entry.get("catalog_v") == _CATALOG_VERSION
         # Si la canción es un recorte y el tema original tiene portada, asegurarse
-        # de que el recorte mantenga la portada del original actualizada.
-        if cover_origen is not None and (not vigente or entry.get("source") != "clip-origin"):
+        # de que el recorte mantenga la portada del original actualizada: se
+        # vuelve a copiar cuando el original cambió de portada.
+        origin_stamp = cover_origen.stat().st_mtime_ns if cover_origen is not None else None
+        if cover_origen is not None and (
+            not vigente
+            or entry.get("source") != "clip-origin"
+            or entry.get("origin_stamp") != origin_stamp
+        ):
             vigente = False
 
         if vigente:
@@ -332,6 +338,8 @@ def resolve_cover(song: Path) -> Path | None:
             "fingerprint": fingerprint, "status": "ready", "source": source,
             "catalog_v": _CATALOG_VERSION,
         }
+        if source == "clip-origin":
+            cache[song.stem]["origin_stamp"] = origin_stamp
         _write_cache(cache)
         return output
 

@@ -137,7 +137,9 @@ def api_cover_cancion(stem: str):
     return FileResponse(
         cover,
         media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=86400"},
+        # no-cache: el navegador revalida con ETag (304 si no cambió). Con
+        # max-age largo seguía mostrando la portada anterior tras corregirla.
+        headers={"Cache-Control": "no-cache"},
     )
 
 
