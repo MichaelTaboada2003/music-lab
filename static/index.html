@@ -395,7 +395,7 @@
           <input type="text" id="videoOutputName" placeholder="Se usará el nombre de la canción si lo dejas vacío" />
           <fieldset class="video-layout-picker">
             <legend>Formato de pantalla</legend>
-            <p class="picker-hint">Elige la disposición visual del video (estilo reproductor Music Lab o terminal).</p>
+            <p class="picker-hint">Elige la disposición visual del video (reproductor Music Lab, terminal o fondo de color).</p>
             <div class="video-layout-options">
               <label class="video-layout-option">
                 <input type="radio" name="videoLayout" value="player" checked />
@@ -411,17 +411,24 @@
                   <span class="video-layout-description">Estilo consola de comandos hacker con ventana chrome `>_`.</span>
                 </span>
               </label>
+              <label class="video-layout-option">
+                <input type="radio" name="videoLayout" value="color" />
+                <span class="video-layout-copy">
+                  <span class="video-layout-name">Formato Color</span>
+                  <span class="video-layout-description">Fondo liso del color que elijas y solo la letra, también en el color que prefieras.</span>
+                </span>
+              </label>
             </div>
           </fieldset>
 
           <fieldset class="lyric-style-picker lyric-flow-picker">
             <legend>Distribución de la letra</legend>
-            <p class="picker-hint">Se aplica por igual a Reproductor y Terminal, tanto en la previsualización como en el video.</p>
+            <p class="picker-hint">Se aplica por igual a los tres formatos, tanto en la previsualización como en el video.</p>
             <div class="lyric-style-options">
               <label class="lyric-style-option">
                 <input type="radio" name="videoLyricFlow" value="block" checked />
                 <span class="lyric-style-name">Bloques adaptativos</span>
-                <span class="lyric-style-description">Mantiene el flujo actual: páginas llenas en Reproductor y estrofas en Terminal.</span>
+                <span class="lyric-style-description">Mantiene el flujo actual: páginas llenas en Reproductor y estrofas en Terminal y Color.</span>
               </label>
               <label class="lyric-style-option">
                 <input type="radio" name="videoLyricFlow" value="line" />
@@ -443,6 +450,34 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 8a5 5 0 0 1 0 8"></path><path d="M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l3.5-4.5A.8.8 0 0 1 11 5v14a.8.8 0 0 1-1.5.5L6 15"></path></svg>
                 <input id="videoPlayerVolume" type="range" class="volume-slider" min="0" max="100" step="5" value="50" />
               </div>
+            </fieldset>
+          </div>
+
+          <div id="colorOptionsGroup" hidden>
+            <fieldset class="video-color-picker">
+              <legend>Colores del video</legend>
+              <p class="picker-hint">Parte de una paleta o crea la tuya. Las palabras que aún no suenan se ven más tenues y se rellenan al cantarse.</p>
+              <div class="color-presets" id="videoColorPresets" role="group" aria-label="Paletas sugeridas"></div>
+              <div class="color-custom">
+                <label class="color-field" for="videoBgColor">
+                  <input type="color" id="videoBgColor" value="#5b21f5" />
+                  <span class="color-field-copy">
+                    <span class="color-field-label">Fondo</span>
+                    <output class="color-field-value" id="videoBgColorValue" for="videoBgColor">#5B21F5</output>
+                  </span>
+                </label>
+                <button type="button" class="color-swap" id="videoColorSwap" title="Intercambiar fondo y letra" aria-label="Intercambiar fondo y letra">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4"/><path d="M3 8h14"/><path d="m17 20 4-4-4-4"/><path d="M21 16H7"/></svg>
+                </button>
+                <label class="color-field" for="videoTextColor">
+                  <input type="color" id="videoTextColor" value="#ffe14d" />
+                  <span class="color-field-copy">
+                    <span class="color-field-label">Letra</span>
+                    <output class="color-field-value" id="videoTextColorValue" for="videoTextColor">#FFE14D</output>
+                  </span>
+                </label>
+              </div>
+              <p class="color-contrast" id="videoColorContrast" aria-live="polite"></p>
             </fieldset>
           </div>
 

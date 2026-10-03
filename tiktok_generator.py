@@ -1,11 +1,12 @@
 """
 tiktok_generator.py
 =======================
-Genera dos formatos de video independientes:
+Genera tres formatos de video independientes:
 
 - Reproductor 16:9: replica el reproductor principal con carátula, metadatos,
   progreso, controles y letras sincronizadas desplazándose a su lado.
 - Terminal 9:16: conserva la estética NovaLyrics orientada a TikTok/Reels.
+- Color 9:16: fondo liso de un color y solo la letra, ambos a elección.
 
 También permite recortar un fragmento del audio (por ejemplo, solo el
 coro) con start_time/end_time en segundos: el video dura únicamente ese
@@ -674,6 +675,150 @@ def build_player_scene(fonts, title=None, artist=None, video_size=PLAYER_VIDEO_S
     return base
 
 
+def parse_hex_color(value, name="color"):
+    """Convierte '#RRGGBB' (o 'RRGGBB') a tupla RGB con un error claro."""
+    text = str(value or "").strip().lstrip("#")
+    if len(text) != 6:
+        raise ValueError(f"El {name} debe tener formato #RRGGBB.")
+    try:
+        return tuple(int(text[i:i + 2], 16) for i in (0, 2, 4))
+    except ValueError as exc:
+        raise ValueError(f"El {name} debe tener formato #RRGGBB.") from exc
+
+
+# Formato Color: la letra es la protagonista, así que usa un cuerpo mayor que
+# Terminal. El ancho respeta la zona segura de TikTok (SAFE_CONTENT_WIDTH).
+COLOR_FORMAT_LYRIC_SCALE = 1.3
+COLOR_FORMAT_WIDTH_RATIO = SAFE_CONTENT_WIDTH / VIDEO_SIZE[0]
+COLOR_FORMAT_CENTER_Y_RATIO = 0.45
+COLOR_FORMAT_FUTURE_MIX = 0.34   # palabras que aún no suenan
+COLOR_FORMAT_TITLE_MIX = 0.78
+COLOR_FORMAT_ARTIST_MIX = 0.55
+COLOR_FORMAT_TRACK_MIX = 0.2     # riel de la barra de progreso
+COLOR_FORMAT_FOOTER_Y = 1352
+COLOR_FORMAT_BAR_WIDTH = 440
+COLOR_FORMAT_BAR_HEIGHT = 5
+
+
+def _color_format_palette(bg_color, text_color):
+    bg = parse_hex_color(bg_color, "color de fondo")
+    text = parse_hex_color(text_color, "color de letra")
+    return {
+        "bg": bg,
+        "text": text,
+        "future": _mix_color(bg, text, COLOR_FORMAT_FUTURE_MIX),
+        "title": _mix_color(bg, text, COLOR_FORMAT_TITLE_MIX),
+        "artist": _mix_color(bg, text, COLOR_FORMAT_ARTIST_MIX),
+        "track": _mix_color(bg, text, COLOR_FORMAT_TRACK_MIX),
+    }
+
+
+def _draw_tracked_text(draw, center_x, y, text, font, fill, tracking):
+    """Texto centrado con interletraje: Pillow no lo soporta de forma nativa."""
+    widths = [_text_width(draw, ch, font) for ch in text]
+    total = sum(widths) + tracking * max(0, len(text) - 1)
+    x = center_x - total / 2
+    for ch, width in zip(text, widths):
+        draw.text((x, y), ch, font=font, fill=fill)
+        x += width + tracking
+
+
+def build_color_scene(video_size, bg_color, text_color, title=None, artist=None):
+    """Capa fija del formato Color: fondo liso y pie con título y artista."""
+    palette = _color_format_palette(bg_color, text_color)
+    width, _ = video_size
+    img = Image.new("RGB", video_size, palette["bg"])
+    draw = ImageDraw.Draw(img)
+    family = _font_family_for("modern")
+    y = COLOR_FORMAT_FOOTER_Y
+    if title:
+        font = _load_font(family["bold"], 32)
+        label = _truncate_text(draw, title.upper(), font, SAFE_CONTENT_WIDTH - 80)
+        _draw_tracked_text(draw, width / 2, y, label, font, palette["title"], 5)
+        y += 52
+    if artist:
+        font = _load_font(family["normal"], 28)
+        label = _truncate_text(draw, artist, font, SAFE_CONTENT_WIDTH - 80)
+        _draw_tracked_text(draw, width / 2, y, label, font, palette["artist"], 1)
+    return img
+
+
+def _draw_color_progress(img, palette, progress):
+    """Barra fina y redondeada que avanza durante el fragmento exportado."""
+    draw = ImageDraw.Draw(img)
+    width, _ = img.size
+    left = (width - COLOR_FORMAT_BAR_WIDTH) / 2
+    top = COLOR_FORMAT_FOOTER_Y + 132
+    box = (left, top, left + COLOR_FORMAT_BAR_WIDTH, top + COLOR_FORMAT_BAR_HEIGHT)
+    radius = COLOR_FORMAT_BAR_HEIGHT / 2
+    draw.rounded_rectangle(box, radius=radius, fill=palette["track"])
+    filled = round(COLOR_FORMAT_BAR_WIDTH * max(0.0, min(1.0, progress)))
+    if filled >= COLOR_FORMAT_BAR_HEIGHT:
+        draw.rounded_rectangle(
+            (left, top, left + filled, top + COLOR_FORMAT_BAR_HEIGHT),
+            radius=radius, fill=palette["text"],
+        )
+
+
+def make_color_frame(stanzas, current_time, fonts, video_size, bg_color, text_color,
+                     lyric_style="karaoke", lyric_flow="block", scene_image=None,
+                     title=None, artist=None, fragment_start=None, fragment_end=None):
+    """Formato Color: fondo liso, letra grande con relleno suave por palabra."""
+    palette = _color_format_palette(bg_color, text_color)
+    width, height = video_size
+    img = scene_image.copy() if scene_image is not None else build_color_scene(
+        video_size, bg_color, text_color, title=title, artist=artist,
+    )
+    if fragment_start is not None and fragment_end is not None and fragment_end > fragment_start:
+        _draw_color_progress(
+            img, palette, (current_time - fragment_start) / (fragment_end - fragment_start),
+        )
+    draw = ImageDraw.Draw(img)
+
+    is_single_line = lyric_flow == "line"
+    if is_single_line:
+        active_line = _active_line_for_time(
+            stanzas, current_time, fragment_start=fragment_start, fragment_end=fragment_end,
+        )
+        stanza = [active_line] if active_line else None
+    else:
+        stanza = _active_stanza(stanzas, current_time)
+    if not stanza:
+        return np.array(img)
+
+    density = _stanza_density(stanza)
+    max_w = round(width * COLOR_FORMAT_WIDTH_RATIO)
+    lyric_left = (width - max_w) / 2
+    layout = _fit_single_line_lyric_layout if is_single_line else _fit_lyric_layout
+    font_lyric, wrapped_lines, space_w = layout(draw, stanza, fonts, max_width=max_w)
+    line_height = int(font_lyric.size * (
+        SINGLE_LINE_LYRIC_LEADING if is_single_line else LYRIC_LEADING[density]
+    ))
+    y_cursor = round(height * COLOR_FORMAT_CENTER_Y_RATIO) - len(wrapped_lines) * line_height / 2
+
+    for seg_words, seg_w in wrapped_lines:
+        x = lyric_left + (max_w - seg_w) / 2
+        for word in seg_words:
+            text = word["text"]
+            w_width = _text_width(draw, text, font_lyric)
+            if current_time >= word["end"]:
+                draw.text((x, y_cursor), text, font=font_lyric, fill=palette["text"])
+            elif current_time >= word["start"]:
+                if lyric_style == "typing":
+                    draw.text((x, y_cursor), text, font=font_lyric, fill=palette["text"])
+                else:
+                    span = max(0.001, word["end"] - word["start"])
+                    _paste_word_progress(
+                        img, x, y_cursor, text, font_lyric, palette["future"],
+                        palette["text"], (current_time - word["start"]) / span,
+                    )
+            elif lyric_style == "karaoke":
+                draw.text((x, y_cursor), text, font=font_lyric, fill=palette["future"])
+            x += w_width + space_w
+        y_cursor += line_height
+    return np.array(img)
+
+
 def build_karaoke_scene(fonts, title=None, artist=None, video_size=VIDEO_SIZE,
                         layout_style="player", lyric_style="karaoke", theme_name="terminal",
                         cover_path=None, audio_volume=1.0):
@@ -1235,7 +1380,14 @@ def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
                        layout_style="player", lyric_style="karaoke", theme_name="terminal",
                        cover_path=None, audio_duration=None, audio_volume=1.0,
                        fragment_start=None, fragment_end=None,
-                       lyric_flow="block"):
+                       lyric_flow="block", bg_color="#000000", text_color="#FFFFFF"):
+    if layout_style == "color":
+        return make_color_frame(
+            stanzas, current_time, fonts, video_size, bg_color, text_color,
+            lyric_style=lyric_style, lyric_flow=lyric_flow, scene_image=scene_image,
+            title=title, artist=artist,
+            fragment_start=fragment_start, fragment_end=fragment_end,
+        )
     width, height = video_size
     img = scene_image.copy() if scene_image is not None else build_karaoke_scene(
         fonts, title=title, artist=artist, video_size=video_size,
@@ -1331,11 +1483,11 @@ def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
     return np.array(img)
 
 
-def _build_fonts(font_family="mono", font_size="balanced"):
+def _build_fonts(font_family="mono", font_size="balanced", lyric_scale=1.0):
     family = _font_family_for(font_family)
     preset = _font_size_for(font_size)
     lyric_by_density = {
-        density: _load_font(family["bold"], size)
+        density: _load_font(family["bold"], round(size * lyric_scale))
         for density, size in preset["lyric"].items()
     }
     return {
@@ -1361,9 +1513,12 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="auto",
                          lyric_flow="block",
                          theme="terminal",
                          font_family="mono", font_size="balanced",
+                         bg_color="#000000", text_color="#FFFFFF",
                          progress_cb=None):
-    if layout_style not in {"player", "terminal"}:
-        raise ValueError("El formato de pantalla debe ser 'player' o 'terminal'.")
+    if layout_style not in {"player", "terminal", "color"}:
+        raise ValueError("El formato de pantalla debe ser 'player', 'terminal' o 'color'.")
+    if layout_style == "color":
+        _color_format_palette(bg_color, text_color)
     if not 0.0 <= audio_volume <= 1.0:
         raise ValueError("El volumen del audio debe estar entre 0.0 y 1.0.")
     if lyric_style not in {"karaoke", "typing"}:
@@ -1411,18 +1566,23 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="auto",
     # 3. Cargar audio y resolver el fragmento a exportar (por defecto, todo).
     audio_clip = AudioFileClip(str(audio_path))
     full_duration = audio_clip.duration
-    render_size = PLAYER_VIDEO_SIZE if layout_style == "player" else VIDEO_SIZE
-    fonts = (
-        _build_fonts(font_family="modern", font_size="balanced")
-        if layout_style == "player"
-        else _build_fonts(font_family=font_family, font_size=font_size)
-    )
+    render_size = PLAYER_VIDEO_SIZE if layout_style == "player" else VIDEO_SIZE  # color y terminal: 9:16
+    if layout_style == "player":
+        fonts = _build_fonts(font_family="modern", font_size="balanced")
+    elif layout_style == "color":
+        fonts = _build_fonts(font_family=font_family, font_size=font_size,
+                             lyric_scale=COLOR_FORMAT_LYRIC_SCALE)
+    else:
+        fonts = _build_fonts(font_family=font_family, font_size=font_size)
     _pc("Componiendo escena", 94)
-    scene_image = build_karaoke_scene(
-        fonts, title=title, artist=artist, video_size=render_size,
-        layout_style=layout_style, lyric_style=lyric_style,
-        theme_name=theme, cover_path=cover_path, audio_volume=audio_volume,
-    )
+    if layout_style == "color":
+        scene_image = build_color_scene(render_size, bg_color, text_color, title=title, artist=artist)
+    else:
+        scene_image = build_karaoke_scene(
+            fonts, title=title, artist=artist, video_size=render_size,
+            layout_style=layout_style, lyric_style=lyric_style,
+            theme_name=theme, cover_path=cover_path, audio_volume=audio_volume,
+        )
 
     frag_start = max(0.0, start_time) if start_time is not None else 0.0
     frag_end = min(full_duration, end_time) if end_time is not None else full_duration
@@ -1445,7 +1605,7 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="auto",
             lyric_style=lyric_style, theme_name=theme, cover_path=cover_path,
             audio_duration=full_duration, audio_volume=audio_volume,
             fragment_start=frag_start, fragment_end=frag_end,
-            lyric_flow=lyric_flow,
+            lyric_flow=lyric_flow, bg_color=bg_color, text_color=text_color,
         )
 
     video_clip = VideoClip(make_frame, duration=duration)
@@ -1479,13 +1639,15 @@ if __name__ == "__main__":
     parser.add_argument("--end", type=float, default=None, help="Segundo de fin del fragmento a exportar")
     parser.add_argument("-t", "--titulo", default=None, help="Título a mostrar en el video")
     parser.add_argument("-a", "--artista", default=None, help="Artista a mostrar en el video")
-    parser.add_argument("--layout-style", choices=("player", "terminal"), default="player")
+    parser.add_argument("--layout-style", choices=("player", "terminal", "color"), default="player")
     parser.add_argument("--audio-volume", type=float, default=1.0, help="Volumen del audio exportado entre 0.0 y 1.0")
     parser.add_argument("--lyric-style", choices=("karaoke", "typing"), default="karaoke")
     parser.add_argument("--lyric-flow", choices=("block", "line"), default="block")
     parser.add_argument("--theme", choices=tuple(VIDEO_THEMES), default="terminal", help="Tema visual del video")
     parser.add_argument("--font-family", choices=tuple(FONT_FAMILIES), default="mono", help="Familia tipográfica de la letra")
     parser.add_argument("--font-size", choices=tuple(FONT_SIZES), default="balanced", help="Escala de tipografía")
+    parser.add_argument("--bg-color", default="#000000", help="Fondo del formato color (#RRGGBB)")
+    parser.add_argument("--text-color", default="#FFFFFF", help="Letra del formato color (#RRGGBB)")
     parser.add_argument("--vad", default="auditok", help="VAD: auditok, silero, o 'none' para desactivar.")
     parser.add_argument("--no-separacion", action="store_true", help="No aislar la voz con Demucs.")
 
@@ -1499,4 +1661,5 @@ if __name__ == "__main__":
         layout_style=args.layout_style, audio_volume=args.audio_volume,
         lyric_style=args.lyric_style, lyric_flow=args.lyric_flow,
         theme=args.theme, font_family=args.font_family, font_size=args.font_size,
+        bg_color=args.bg_color, text_color=args.text_color,
     )

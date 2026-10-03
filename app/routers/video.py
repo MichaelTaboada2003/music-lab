@@ -30,13 +30,15 @@ class VideoRequest(BaseModel):
     artista: Optional[str] = None
     vad: Optional[str] = "auditok"
     separate_vocals: bool = True
-    layout_style: Literal["player", "terminal"] = "player"
+    layout_style: Literal["player", "terminal", "color"] = "player"
     audio_volume: float = Field(default=1.0, ge=0.0, le=1.0)
     lyric_style: Literal["karaoke", "typing"] = "karaoke"
     lyric_flow: Literal["block", "line"] = "block"
     theme: Literal["terminal", "midnight", "sunset", "cloud"] = "terminal"
     font_family: Literal["mono", "modern", "editorial"] = "mono"
     font_size: Literal["compact", "balanced", "large"] = "balanced"
+    bg_color: str = Field(default="#000000", pattern=r"^#[0-9a-fA-F]{6}$")
+    text_color: str = Field(default="#FFFFFF", pattern=r"^#[0-9a-fA-F]{6}$")
 
 
 @router.post("/api/video/{stem}")
@@ -49,6 +51,8 @@ def api_generar_video(stem: str, payload: VideoRequest):
     default_suffix = (
         "reproductor"
         if payload.layout_style == "player"
+        else "color"
+        if payload.layout_style == "color"
         else ("escritura" if payload.lyric_style == "typing" else "karaoke")
     )
     if payload.lyric_flow == "line":
@@ -61,6 +65,8 @@ def api_generar_video(stem: str, payload: VideoRequest):
             default_suffix = f"{default_suffix} - {payload.theme}"
         if payload.font_family != "mono" or payload.font_size != "balanced":
             default_suffix = f"{default_suffix} - {payload.font_family}-{payload.font_size}"
+    if payload.layout_style == "color" and payload.lyric_style == "typing":
+        default_suffix = f"{default_suffix} - escritura"
     audio_volume = payload.audio_volume if payload.layout_style == "player" else 1.0
     output_name = (payload.nombre_salida or f"{stem} - {default_suffix}").strip()
     if Path(output_name).name != output_name:
@@ -82,6 +88,7 @@ def api_generar_video(stem: str, payload: VideoRequest):
             lyric_style=payload.lyric_style, lyric_flow=payload.lyric_flow,
             theme=payload.theme,
             font_family=payload.font_family, font_size=payload.font_size,
+            bg_color=payload.bg_color, text_color=payload.text_color,
             progress_cb=progress_cb,
         )
         return {"video": output_path.name}
@@ -90,7 +97,8 @@ def api_generar_video(stem: str, payload: VideoRequest):
         _tarea,
         key=(f"video:{stem}:{output_name}:{payload.layout_style}:{audio_volume}:"
              f"{payload.lyric_style}:{payload.lyric_flow}:{payload.theme}:"
-             f"{payload.font_family}:{payload.font_size}:{payload.start_time}:{payload.end_time}"),
+             f"{payload.font_family}:{payload.font_size}:{payload.bg_color}:{payload.text_color}:"
+             f"{payload.start_time}:{payload.end_time}"),
     )
     return {"job_id": job_id}
 

@@ -294,5 +294,40 @@ class TikTokThemeTests(unittest.TestCase):
             )
 
 
+class ColorFormatTests(unittest.TestCase):
+    BG = "#7B2FF7"
+    TEXT = "#FFE600"
+
+    def _frame(self, t, **kwargs):
+        stanzas = [[_line("voy a estar contigo hasta el final", 0.0, 4.0)]]
+        return generator.make_karaoke_frame(
+            stanzas, t, generator._build_fonts("modern", "balanced"),
+            video_size=generator.VIDEO_SIZE, layout_style="color",
+            bg_color=self.BG, text_color=self.TEXT, **kwargs,
+        )
+
+    def test_frame_usa_solo_fondo_y_color_de_letra(self):
+        frame = self._frame(2.0)
+        self.assertEqual(frame.shape, (1920, 1080, 3))
+        bg = generator.parse_hex_color(self.BG)
+        text = generator.parse_hex_color(self.TEXT)
+        self.assertEqual(tuple(frame[0, 0]), bg)
+        colors = {tuple(c) for c in frame.reshape(-1, 3)[::97]}
+        self.assertIn(text, colors)
+        self.assertIn(generator._color_format_palette(self.BG, self.TEXT)["future"], colors)
+
+    def test_modo_escritura_no_muestra_palabras_futuras(self):
+        karaoke = self._frame(0.1, lyric_style="karaoke")
+        typing = self._frame(0.1, lyric_style="typing")
+        bg = np.array(generator.parse_hex_color(self.BG))
+        self.assertGreater((karaoke != bg).any(axis=2).sum(), (typing != bg).any(axis=2).sum())
+
+    def test_color_invalido_se_rechaza(self):
+        for bad in ("", "red", "#12345", "#GGGGGG"):
+            with self.assertRaises(ValueError):
+                generator.parse_hex_color(bad)
+        self.assertEqual(generator.parse_hex_color("ffe600"), (255, 230, 0))
+
+
 if __name__ == "__main__":
     unittest.main()

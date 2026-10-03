@@ -33,6 +33,8 @@ const lyricFlowInputs = document.querySelectorAll('input[name="videoLyricFlow"]'
 const videoThemeInputs = document.querySelectorAll('input[name="videoTheme"]');
 const videoFontFamily = document.getElementById("videoFontFamily");
 const videoFontSizeInputs = document.querySelectorAll('input[name="videoFontSize"]');
+const videoBgColor = document.getElementById("videoBgColor");
+const videoTextColor = document.getElementById("videoTextColor");
 const videoPlayerVolume = document.getElementById("videoPlayerVolume");
 const videoPlayerVolumeValue = document.getElementById("videoPlayerVolumeValue");
 const studioTrackTitle = document.getElementById("studioTrackTitle");
@@ -73,6 +75,85 @@ function selectedFontSize() {
   return document.querySelector('input[name="videoFontSize"]:checked')?.value || "balanced";
 }
 
+// Paletas curadas del formato Color: cada par se eligió por contraste y carácter.
+const COLOR_PRESETS = [
+  { name: "Violeta eléctrico", bg: "#5B21F5", text: "#FFE14D" },
+  { name: "Negro puro", bg: "#000000", text: "#FFFFFF" },
+  { name: "Crema editorial", bg: "#F4EDE1", text: "#1B1B1B" },
+  { name: "Rojo pasión", bg: "#C8102E", text: "#FFF1E6" },
+  { name: "Verde Music Lab", bg: "#0A1F14", text: "#1ED760" },
+  { name: "Azul noche", bg: "#0E1B4D", text: "#9FD3FF" },
+  { name: "Rosa chicle", bg: "#FF5FA2", text: "#2A0A1E" },
+  { name: "Durazno", bg: "#FFB38A", text: "#3B1D14" },
+];
+
+function _luminance(hex) {
+  const channels = [1, 3, 5].map((i) => {
+    const v = Number.parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function _contrastRatio(a, b) {
+  const [hi, lo] = [_luminance(a), _luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+function renderColorPresets() {
+  const host = document.getElementById("videoColorPresets");
+  if (!host) return;
+  host.innerHTML = "";
+  COLOR_PRESETS.forEach((preset) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "color-preset";
+    button.dataset.bg = preset.bg;
+    button.dataset.text = preset.text;
+    button.innerHTML =
+      `<span class="color-preset-swatch" style="--bg:${preset.bg};--fg:${preset.text}" aria-hidden="true">Aa</span>` +
+      `<span class="color-preset-name">${preset.name}</span>`;
+    button.addEventListener("click", () => setVideoColors(preset.bg, preset.text));
+    host.appendChild(button);
+  });
+}
+
+function setVideoColors(bg, text) {
+  videoBgColor.value = bg.toLowerCase();
+  videoTextColor.value = text.toLowerCase();
+  updateColorControls();
+}
+
+function updateColorControls() {
+  const bg = selectedBgColor();
+  const text = selectedTextColor();
+  document.getElementById("videoBgColorValue").textContent = bg;
+  document.getElementById("videoTextColorValue").textContent = text;
+  document.querySelectorAll(".color-preset").forEach((button) => {
+    const active = button.dataset.bg === bg && button.dataset.text === text;
+    button.setAttribute("aria-pressed", String(active));
+  });
+  const hint = document.getElementById("videoColorContrast");
+  if (hint) {
+    const ratio = _contrastRatio(bg, text);
+    hint.dataset.level = ratio >= 3 ? "ok" : "warn";
+    hint.textContent = ratio >= 4.5
+      ? `Contraste excelente (${ratio.toFixed(1)}:1): la letra se lee sin esfuerzo.`
+      : ratio >= 3
+        ? `Contraste suficiente (${ratio.toFixed(1)}:1): se lee bien en letra grande.`
+        : `Contraste bajo (${ratio.toFixed(1)}:1): la letra costará leerse. Prueba una paleta más marcada.`;
+  }
+  if (!fragPreviewStage.hidden) applyPreviewLyricStyle();
+}
+
+function selectedBgColor() {
+  return (videoBgColor?.value || COLOR_PRESETS[0].bg).toUpperCase();
+}
+
+function selectedTextColor() {
+  return (videoTextColor?.value || COLOR_PRESETS[0].text).toUpperCase();
+}
+
 function selectedPlayerVolume() {
   const percent = Number.parseFloat(videoPlayerVolume?.value ?? "50");
   return Math.max(0, Math.min(1, percent / 100));
@@ -95,9 +176,15 @@ function updateLayoutVisibility() {
   if (playerGroup) {
     playerGroup.hidden = selectedVideoLayout() !== "player";
   }
+  const colorGroup = document.getElementById("colorOptionsGroup");
+  const layout = selectedVideoLayout();
   if (terminalGroup) {
-    terminalGroup.hidden = selectedVideoLayout() !== "terminal";
+    // Color reutiliza tipografía y formato de letra de Terminal, pero no su tema.
+    terminalGroup.hidden = layout === "player";
   }
+  const themePicker = terminalGroup?.querySelector(".video-theme-picker");
+  if (themePicker) themePicker.hidden = layout === "color";
+  if (colorGroup) colorGroup.hidden = layout !== "color";
   updatePlayerVolume();
 }
 
@@ -113,6 +200,8 @@ function applyPreviewLyricStyle() {
   fragPreviewStage.dataset.videoTheme = selectedVideoTheme();
   fragPreviewStage.dataset.videoFont = videoFontFamily?.value || "mono";
   fragPreviewStage.dataset.videoFontSize = selectedFontSize();
+  fragPreviewStage.style.setProperty("--cf-bg", selectedBgColor());
+  fragPreviewStage.style.setProperty("--cf-text", selectedTextColor());
   return LYRIC_STYLE_LABELS[style];
 }
 
@@ -445,8 +534,17 @@ fragPreviewClose.addEventListener("click", () => {
   _stopFragLoop();
 });
 
+// Cada formato recuerda su tipografía: Color nace con una moderna y Terminal con mono.
+const _fontByLayout = { player: "modern", terminal: "mono", color: "modern" };
+let _fontLayout = selectedVideoLayout();
+
 videoLayoutInputs.forEach((input) => {
   input.addEventListener("change", () => {
+    if (videoFontFamily) {
+      _fontByLayout[_fontLayout] = videoFontFamily.value;
+      _fontLayout = selectedVideoLayout();
+      videoFontFamily.value = _fontByLayout[_fontLayout];
+    }
     updateLayoutVisibility();
     if (!fragPreviewStage.hidden) {
       applyPreviewLyricStyle();
@@ -482,6 +580,7 @@ videoThemeInputs.forEach((input) => {
 });
 
 videoFontFamily?.addEventListener("change", () => {
+  _fontByLayout[_fontLayout] = videoFontFamily.value;
   if (!fragPreviewStage.hidden) applyPreviewLyricStyle();
 });
 
@@ -490,6 +589,14 @@ videoFontSizeInputs.forEach((input) => {
     if (!fragPreviewStage.hidden) applyPreviewLyricStyle();
   });
 });
+
+videoBgColor?.addEventListener("input", updateColorControls);
+videoTextColor?.addEventListener("input", updateColorControls);
+document.getElementById("videoColorSwap")?.addEventListener("click", () => {
+  setVideoColors(selectedTextColor(), selectedBgColor());
+});
+renderColorPresets();
+updateColorControls();
 
 videoPlayerVolume?.addEventListener("input", updatePlayerVolume);
 updatePlayerVolume();
@@ -731,10 +838,18 @@ function _updateFragTerminal() {
 
   // Marcar palabras reveladas y mover el cursor.
   const words = fragPreviewLyrics.querySelectorAll(".term-word");
+  const isColor = selectedVideoLayout() === "color";
   let lastRevealed = null;
   words.forEach((w) => {
     const start = parseFloat(w.dataset.start);
     const end = parseFloat(w.dataset.end);
+    if (isColor) {
+      // Formato Color: relleno horizontal por palabra, igual que el video.
+      const wipe = selectedLyricStyle() === "typing" || t >= end
+        ? (t >= start ? 1 : 0)
+        : Math.max(0, Math.min(1, (t - start) / Math.max(0.001, end - start)));
+      w.style.setProperty("--p", `${(wipe * 100).toFixed(1)}%`);
+    }
     if (t >= start) {
       w.classList.add("revealed");
       w.classList.toggle("current", t < end);
@@ -744,6 +859,13 @@ function _updateFragTerminal() {
       w.classList.remove("current");
     }
   });
+
+  if (isColor) {
+    const from = Number.isFinite(_fragState.fragmentStart) ? _fragState.fragmentStart : 0;
+    const to = Number.isFinite(_fragState.fragmentEnd) ? _fragState.fragmentEnd : fragPreviewAudio.duration;
+    const progress = to > from ? Math.max(0, Math.min(1, (t - from) / (to - from))) : 0;
+    fragPreviewStage.style.setProperty("--cf-progress", `${(progress * 100).toFixed(2)}%`);
+  }
 
   const cursor = fragPreviewLyrics.querySelector(".term-cursor");
   if (cursor) {
@@ -818,6 +940,8 @@ videoGenerateBtn.addEventListener("click", async () => {
         theme,
         font_family,
         font_size,
+        bg_color: selectedBgColor(),
+        text_color: selectedTextColor(),
         separate_vocals: opts.separate_vocals,
         vad: opts.vad,
       }
