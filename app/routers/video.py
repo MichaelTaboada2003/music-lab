@@ -13,6 +13,8 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from PIL import Image
+
 import lyric_styles
 import tiktok_generator
 from library_artwork import resolve_cover
@@ -164,7 +166,7 @@ def api_video_frame(
     common = dict(
         size=tiktok_generator.VIDEO_SIZE, title=titulo or stem, artist=artista, cover_path=cover,
         font_family=font_family, font_size=font_size, lyric_style=lyric_style,
-        lyric_flow=lyric_flow, fragment_start=start, fragment_end=end,
+        lyric_flow=lyric_flow, fragment_start=start, fragment_end=end, as_image=True,
     )
     if layout_style == "color":
         frame = lyric_styles.render_color_frame(
@@ -176,10 +178,12 @@ def api_video_frame(
         frame = lyric_styles.render_terminal_frame(
             stanzas, t, theme=tiktok_generator._theme_for(theme), **common,
         )
-    from PIL import Image
-    image = Image.fromarray(frame)
-    height = round(width * image.height / image.width)
-    image = image.resize((width, height), Image.LANCZOS)
+    # 1080 → 540 es una reducción exacta a la mitad: reduce() es mucho más
+    # rápido que un remuestreo general y se ve igual de nítido.
+    if width == frame.width // 2:
+        image = frame.reduce(2)
+    else:
+        image = frame.resize((width, round(width * frame.height / frame.width)), Image.BILINEAR)
     buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", quality=86)
+    image.save(buffer, format="JPEG", quality=84)
     return Response(buffer.getvalue(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})

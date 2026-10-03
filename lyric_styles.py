@@ -192,28 +192,36 @@ def rows_for(line, family, weight, size, max_w):
     return rows
 
 
-@lru_cache(maxsize=2048)
-def _word_layer(text, font, fill):
-    width = math.ceil(text_w(text, font)) + 12
+# Rasterizar texto es lo más caro de cada frame. La máscara de una palabra solo
+# depende del texto y la fuente, así que se genera una vez y luego se estampa
+# con el color que toque (pegar una máscara cuesta una fracción de dibujarla).
+_MASK_PAD = 6
+
+
+@lru_cache(maxsize=12000)
+def _text_mask(text, font):
+    width = math.ceil(text_w(text, font)) + _MASK_PAD * 2
     height = math.ceil(font.size * 1.6)
-    layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    ImageDraw.Draw(layer).text((6, 0), text, font=font, fill=fill)
-    return layer
+    mask = Image.new("L", (width, height), 0)
+    ImageDraw.Draw(mask).text((_MASK_PAD, 0), text, font=font, fill=255)
+    return mask
+
+
+def draw_text(img, x, y, text, font, fill):
+    img.paste(tuple(fill), (round(x) - _MASK_PAD, round(y)), _text_mask(text, font))
 
 
 def draw_wipe_word(img, x, y, text, font, base, fill, progress):
     """Palabra con relleno horizontal de izquierda a derecha (karaoke suave)."""
-    draw = ImageDraw.Draw(img)
-    if progress <= 0:
-        draw.text((x, y), text, font=font, fill=base)
-        return
     if progress >= 1:
-        draw.text((x, y), text, font=font, fill=fill)
+        draw_text(img, x, y, text, font, fill)
         return
-    draw.text((x, y), text, font=font, fill=base)
-    layer = _word_layer(text, font, tuple(fill))
-    clip = max(1, round(6 + (layer.width - 12) * progress))
-    img.paste(layer.crop((0, 0, clip, layer.height)), (round(x) - 6, round(y)), layer.crop((0, 0, clip, layer.height)))
+    draw_text(img, x, y, text, font, base)
+    if progress <= 0:
+        return
+    mask = _text_mask(text, font)
+    clip = max(1, round(_MASK_PAD + (mask.width - _MASK_PAD * 2) * progress))
+    img.paste(tuple(fill), (round(x) - _MASK_PAD, round(y)), mask.crop((0, 0, clip, mask.height)))
 
 
 # --------------------------------------------------------------- fondos ------
@@ -377,7 +385,7 @@ def _line_height(line, family, size):
 
 def render_color_frame(stanzas, t, *, size, bg, text, title=None, artist=None, cover_path=None,
                        font_family="modern", font_size="balanced", lyric_style="karaoke",
-                       lyric_flow="block", fragment_start=None, fragment_end=None):
+                       lyric_flow="block", fragment_start=None, fragment_end=None, as_image=False):
     bg, text = _rgb(bg), _rgb(text)
     w, h = size
     img = build_color_scene(size, bg, text, title, artist, cover_path).copy()
@@ -387,7 +395,7 @@ def render_color_frame(stanzas, t, *, size, bg, text, title=None, artist=None, c
     _draw_color_progress(img, draw, t, bg, text, lines, fragment_start, fragment_end)
     _draw_equalizer(draw, t, bg, text, w)
     if not lines:
-        return np.asarray(img)
+        return img if as_image else np.asarray(img)
 
     family = font_family if font_family in FAMILY_SCALE else "modern"
     active_size = round(COLOR_ACTIVE_SIZE * SIZE_STEPS.get(font_size, 1.0) * FAMILY_SCALE[family] / 2) * 2
@@ -395,7 +403,7 @@ def render_color_frame(stanzas, t, *, size, bg, text, title=None, artist=None, c
 
     if lyric_flow == "line":
         _render_color_single(img, lines, i, t, family, active_size, bg, text, lyric_style)
-        return np.asarray(img)
+        return img if as_image else np.asarray(img)
 
     start_i = float(lines[i].get("start", 0) or 0)
     e = ease_out_cubic((t - (start_i - COLOR_ANTICIPATION)) / COLOR_TRANSITION) if i > 0 else 1.0
@@ -426,7 +434,7 @@ def render_color_frame(stanzas, t, *, size, bg, text, title=None, artist=None, c
             continue
         _draw_color_line(img, lines[it["k"]], it["k"], i, t, COLOR_MARGIN_L, top, it["q"], alpha,
                          family, bg, text, lyric_style)
-    return np.asarray(img)
+    return img if as_image else np.asarray(img)
 
 
 def _render_color_single(img, lines, i, t, family, active_size, bg, text, lyric_style):
@@ -460,9 +468,9 @@ def _draw_color_progress(img, draw, t, bg, text, lines, fragment_start, fragment
     draw.ellipse((knob - 9, y - 6, knob + 9, y + 12), fill=text)
     label = face("modern", "medium", 27)
     dim = mix(bg, text, 0.62)
-    draw.text((x0, y + 30), clock(t - start), font=label, fill=dim)
+    draw_text(img, x0, y + 30, clock(t - start), label, dim)
     right = clock(total)
-    draw.text((x1 - text_w(right, label), y + 30), right, font=label, fill=dim)
+    draw_text(img, x1 - text_w(right, label), y + 30, right, label, dim)
 
 
 def _draw_equalizer(draw, t, bg, text, width):
@@ -547,25 +555,33 @@ def _terminal_font_size(font_family, font_size):
     return round(TERM_FONT * SIZE_STEPS.get(font_size, 1.0) * (1.0 if font_family == "mono" else 1.08))
 
 
-def _add_glow(img, box, text, font, color, strength=0.9, radius=14):
-    x, y, w, h = box
+@lru_cache(maxsize=512)
+def _glow_mask(text, font, radius):
     pad = radius * 3
-    left, top = max(0, int(x - pad)), max(0, int(y - pad))
-    right, bottom = min(img.width, int(x + w + pad)), min(img.height, int(y + h + pad))
+    width, height = math.ceil(text_w(text, font)) + pad * 2, math.ceil(font.size * 1.6) + pad * 2
+    mask = Image.new("L", (width, height), 0)
+    ImageDraw.Draw(mask).text((pad, pad), text, font=font, fill=255)
+    return np.asarray(mask.filter(ImageFilter.GaussianBlur(radius)), dtype=np.float32)[..., None] / 255.0
+
+
+def _add_glow(img, box, text, font, color, strength=0.9, radius=14):
+    x, y, _w, _h = box
+    glow = _glow_mask(text, font, radius)
+    pad = radius * 3
+    gx, gy = round(x) - pad, round(y) - pad
+    left, top = max(0, gx), max(0, gy)
+    right, bottom = min(img.width, gx + glow.shape[1]), min(img.height, gy + glow.shape[0])
     if right <= left or bottom <= top:
         return
-    mask = Image.new("L", (right - left, bottom - top), 0)
-    ImageDraw.Draw(mask).text((x - left, y - top), text, font=font, fill=255)
-    mask = mask.filter(ImageFilter.GaussianBlur(radius))
     region = np.asarray(img.crop((left, top, right, bottom))).astype(np.float32)
-    glow = (np.asarray(mask, dtype=np.float32) / 255.0)[..., None] * strength
-    region = region + glow * np.array(color, dtype=np.float32)
+    part = glow[top - gy:bottom - gy, left - gx:right - gx] * strength
+    region = region + part * np.array(color, dtype=np.float32)
     img.paste(Image.fromarray(np.clip(region, 0, 255).astype(np.uint8)), (left, top))
 
 
 def render_terminal_frame(stanzas, t, *, size, theme, title=None, artist=None, cover_path=None,
                           font_family="mono", font_size="balanced", lyric_style="karaoke",
-                          lyric_flow="block", fragment_start=None, fragment_end=None):
+                          lyric_flow="block", fragment_start=None, fragment_end=None, as_image=False):
     w, h = size
     img = build_terminal_scene(size, theme, title, artist).copy()
     draw = ImageDraw.Draw(img)
@@ -589,7 +605,7 @@ def render_terminal_frame(stanzas, t, *, size, theme, title=None, artist=None, c
     i = active_index(lines, t) if lines else 0
     _draw_terminal_status(img, draw, theme, colors, t, start, end, i, len(lines), title)
     if not lines:
-        return np.asarray(img)
+        return img if as_image else np.asarray(img)
 
     family = font_family if font_family in FAMILY_SCALE else "mono"
     base_size = _terminal_font_size(family, font_size)
@@ -641,8 +657,8 @@ def render_terminal_frame(stanzas, t, *, size, theme, title=None, artist=None, c
             draw.rectangle((0, band_top, 8, band_bottom), fill=colors["status"])
         label = str(k + 1)
         nf = num_font_on if active else num_font
-        draw.text((TERM_GUTTER_RIGHT - text_w(label, nf), top + (row_h - 34) / 2 - 2), label, font=nf,
-                  fill=colors["gutter_on"] if active else mix(win, colors["gutter"], edge))
+        draw_text(img, TERM_GUTTER_RIGHT - text_w(label, nf), top + (row_h - 34) / 2 - 2, label, nf,
+                  colors["gutter_on"] if active else mix(win, colors["gutter"], edge))
         space = text_w(" ", font)
         for r, (words, _w) in enumerate(rows):
             cx, ry = TERM_TEXT_X, top + r * row_h
@@ -668,7 +684,7 @@ def render_terminal_frame(stanzas, t, *, size, theme, title=None, artist=None, c
                     col, show = colors["future"], lyric_style == "karaoke"
                 if show:
                     col = mix(win, col, row_edge * (fade_in if active else 1.0))
-                    draw.text((cx, ry), wt, font=font, fill=col)
+                    draw_text(img, cx, ry, wt, font, col)
                 if active and ws <= t:
                     cursor_xy = (cx + ww, ry)
                     if ws <= t < we and row_edge > 0.5:
@@ -683,7 +699,7 @@ def render_terminal_frame(stanzas, t, *, size, theme, title=None, artist=None, c
         cx, cy = cursor_xy
         cx += text_w(" ", font) * 0.15
         draw.rectangle((cx, cy + q * 0.10, cx + q * 0.58, cy + q * 1.18), fill=colors["cursor"])
-    return np.asarray(img)
+    return img if as_image else np.asarray(img)
 
 
 def _draw_terminal_status(img, draw, theme, colors, t, start, end, i, total, title):
@@ -709,16 +725,16 @@ def _draw_terminal_status(img, draw, theme, colors, t, start, end, i, total, tit
     draw.rectangle((0, y, pill_w, y + 78), fill=status)
     cy = y + 39
     draw.polygon([(34, cy - 13), (34, cy + 13), (58, cy)], fill=ink)
-    draw.text((76, cy - 19), "PLAYING", font=label, fill=ink)
+    draw_text(img, 76, cy - 19, "PLAYING", label, ink)
     draw.polygon([(pill_w, y), (pill_w + 32, cy), (pill_w, y + 78)], fill=status)
-    draw.text((pill_w + 56, cy - 19), ellipsize(f"{_slug(title)}.lrc", reg, 330), font=reg,
-              fill=mix(bar, _rgb(theme["titlebar_text"]), 0.85))
+    draw_text(img, pill_w + 56, cy - 19, ellipsize(f"{_slug(title)}.lrc", reg, 330), reg,
+              mix(bar, _rgb(theme["titlebar_text"]), 0.85))
     # Posición y tiempo
     right = f"{clock(t - start)} / {clock(total_t)}"
     rw = text_w(right, label)
     draw.rectangle((w - rw - 92, y, w, y + 78), fill=mix(bar, _rgb(theme["panel_line"]), 0.45))
     draw.polygon([(w - rw - 92, y), (w - rw - 124, cy), (w - rw - 92, y + 78)], fill=mix(bar, _rgb(theme["panel_line"]), 0.45))
-    draw.text((w - rw - 54, cy - 19), right, font=label, fill=_rgb(theme["title"]))
+    draw_text(img, w - rw - 54, cy - 19, right, label, _rgb(theme["title"]))
     pos = f"Ln {min(total, i + 1)}/{total}"
-    draw.text((w - rw - 124 - text_w(pos, reg) - 24, cy - 19), pos, font=reg,
-              fill=mix(bar, _rgb(theme["titlebar_text"]), 0.7))
+    draw_text(img, w - rw - 124 - text_w(pos, reg) - 24, cy - 19, pos, reg,
+              mix(bar, _rgb(theme["titlebar_text"]), 0.7))

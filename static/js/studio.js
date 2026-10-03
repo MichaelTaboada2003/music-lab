@@ -749,7 +749,7 @@ let _frameInFlight = false;
 let _framePending = null;
 let _frameLastT = -1;
 let _frameUrl = null;
-const FRAME_MIN_STEP = 1 / 20;
+const FRAME_MIN_STEP = 1 / 30;
 
 function _previewMeta() {
   const song = canciones.find((c) => c.stem === studioSongSelect.value);
