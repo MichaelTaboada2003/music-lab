@@ -25,7 +25,7 @@ COVERS_DIR = _BASE_DIR / ".covers"
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".webm", ".ogg"}
 COVERS_DIR.mkdir(parents=True, exist_ok=True)
 
-from library_metadata import get_metadata, split_artists
+from library_metadata import clip_info, get_metadata, split_artists
 
 _CACHE_PATH = COVERS_DIR / "index.json"
 # Subir al cambiar el criterio de búsqueda: reevalúa portadas de catálogo y fallos previos.
@@ -271,11 +271,12 @@ def _song_by_stem(stem: str) -> Path | None:
     return None
 
 
-def _origin_of_clip(song: Path, metadata: dict) -> Path | None:
+def _origin_of_clip(song: Path) -> Path | None:
     """Canción de la que salió un recorte, si sigue en la biblioteca."""
-    if metadata.get("kind") != "clip":
+    es_recorte, clip_of = clip_info(song)
+    if not es_recorte:
         return None
-    origen = _song_by_stem(metadata.get("clip_of") or "")
+    origen = _song_by_stem(clip_of)
     if origen is None:
         # Respaldo para recortes creados antes de que existiera la marca.
         origen = _song_by_stem(_CLIP_SUFFIX_RE.sub("", song.stem).strip())
@@ -284,7 +285,7 @@ def _origin_of_clip(song: Path, metadata: dict) -> Path | None:
 
 def resolve_cover(song: Path) -> Path | None:
     """Devuelve una carátula local o ``None`` si corresponde usar el fallback UI."""
-    origen = _origin_of_clip(song, get_metadata(song))
+    origen = _origin_of_clip(song)
     cover_origen = resolve_cover(origen) if origen else None
 
     fingerprint = song.stat().st_mtime_ns

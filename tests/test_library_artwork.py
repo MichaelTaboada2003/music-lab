@@ -65,3 +65,18 @@ def test_nombre_todo_mayusculas_se_lee_artista_titulo():
         "BAD BUNNY - LA DROGA ｜ EL ÚLTIMO TOUR DEL MUNDO [Visualizer]"
     ) == ("LA DROGA", "BAD BUNNY")
     assert _infer_from_filename("MOJABI GHOST - Tainy, Bad Bunny") == ("MOJABI GHOST", "Tainy, Bad Bunny")
+
+
+def test_clip_info_detecta_recortes_sin_lanzar_ffprobe(monkeypatch, tmp_path):
+    import library_metadata
+
+    def boom(*args, **kwargs):
+        raise AssertionError("clip_info no debe invocar ffprobe")
+
+    monkeypatch.setattr(library_metadata.subprocess, "run", boom)
+    monkeypatch.setattr(library_metadata, "_METADATA_PATH", tmp_path / "meta.json")
+    assert library_metadata.clip_info(tmp_path / "Tema (recorte).mp3") == (True, "")
+    assert library_metadata.clip_info(tmp_path / "Tema (recorte) (2).mp3")[0] is True
+    assert library_metadata.clip_info(tmp_path / "Tema.mp3") == (False, "")
+    library_metadata.mark_as_clip("Otro", "Tema")
+    assert library_metadata.clip_info(tmp_path / "Otro.mp3") == (True, "Tema")

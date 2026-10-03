@@ -104,6 +104,17 @@ def _infer_from_filename(stem: str) -> tuple[str, str]:
     return right, left
 
 
+def clip_info(song: Path) -> tuple[bool, str]:
+    """Indica si la canción es un recorte y de cuál proviene, sin lanzar ffprobe.
+
+    Es el dato que necesita cada petición de portada; leer los tags embebidos
+    con ffprobe en cada una añadía decenas de milisegundos."""
+    with _LOCK:
+        manual = _read_overrides().get(song.stem, {})
+    es_recorte = manual.get("kind") == "clip" or bool(_CLIP_SUFFIX_RE.search(song.stem.strip()))
+    return es_recorte, (manual.get("clip_of", "") if es_recorte else "")
+
+
 def get_metadata(song: Path) -> dict:
     """Resuelve ficha en orden: edición local, tags, nombre de archivo."""
     with _LOCK:
