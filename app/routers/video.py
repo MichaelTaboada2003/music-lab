@@ -4,17 +4,22 @@ Endpoints del generador de video estilo TikTok.
   - GET  /api/videos               → lista mp4 generados
 """
 
+import io
+import json
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+import lyric_styles
 import tiktok_generator
+from library_artwork import resolve_cover
 
 from ..config import VIDEOS_DIR
 from ..jobs import start_job
-from ..utils import find_song, lyrics_path_for, vad_value
+from ..utils import find_song, lyrics_path_for, sync_cache_path_for, vad_value
 
 router = APIRouter(tags=["video"])
 
@@ -112,3 +117,69 @@ def api_videos():
             p.name for p in VIDEOS_DIR.iterdir() if p.suffix.lower() == ".mp4"
         )
     }
+
+
+_SYNC_STANZAS: dict = {}
+
+
+def _stanzas_for(stem: str):
+    """Letra sincronizada del cache; se relee solo si el archivo cambió."""
+    path = sync_cache_path_for(stem)
+    if not path.is_file():
+        raise HTTPException(400, "Sincroniza la canción antes de previsualizar.")
+    stamp = path.stat().st_mtime_ns
+    cached = _SYNC_STANZAS.get(stem)
+    if cached is None or cached[0] != stamp:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        cached = (stamp, data.get("stanzas") or [])
+        _SYNC_STANZAS[stem] = cached
+    return cached[1]
+
+
+@router.get("/api/video/{stem}/frame")
+def api_video_frame(
+    stem: str,
+    t: float = Query(0.0, ge=0.0),
+    layout_style: Literal["terminal", "color"] = "color",
+    theme: Literal["terminal", "midnight", "sunset", "cloud"] = "terminal",
+    font_family: Literal["mono", "modern", "editorial"] = "modern",
+    font_size: Literal["compact", "balanced", "large"] = "balanced",
+    lyric_style: Literal["karaoke", "typing"] = "karaoke",
+    lyric_flow: Literal["block", "line"] = "block",
+    bg_color: str = Query("#5B21F5", pattern=r"^#[0-9a-fA-F]{6}$"),
+    text_color: str = Query("#FFE14D", pattern=r"^#[0-9a-fA-F]{6}$"),
+    start: Optional[float] = None,
+    end: Optional[float] = None,
+    titulo: Optional[str] = None,
+    artista: Optional[str] = None,
+    width: int = Query(540, ge=180, le=1080),
+):
+    """Un frame de la exportación (mismo código que el video) para la vista previa."""
+    song = find_song(stem)
+    stanzas = _stanzas_for(stem)
+    try:
+        cover = resolve_cover(song)
+    except Exception:
+        cover = None
+    common = dict(
+        size=tiktok_generator.VIDEO_SIZE, title=titulo or stem, artist=artista, cover_path=cover,
+        font_family=font_family, font_size=font_size, lyric_style=lyric_style,
+        lyric_flow=lyric_flow, fragment_start=start, fragment_end=end,
+    )
+    if layout_style == "color":
+        frame = lyric_styles.render_color_frame(
+            stanzas, t,
+            bg=tiktok_generator.parse_hex_color(bg_color),
+            text=tiktok_generator.parse_hex_color(text_color), **common,
+        )
+    else:
+        frame = lyric_styles.render_terminal_frame(
+            stanzas, t, theme=tiktok_generator._theme_for(theme), **common,
+        )
+    from PIL import Image
+    image = Image.fromarray(frame)
+    height = round(width * image.height / image.width)
+    image = image.resize((width, height), Image.LANCZOS)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=86)
+    return Response(buffer.getvalue(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})

@@ -630,22 +630,8 @@
             <!-- Replica el look de la exportación final y permanece visible al ajustar el fragmento. -->
             <div class="term-stage" id="fragPreviewStage" hidden>
               <button class="term-close" id="fragPreviewClose" title="Cerrar">×</button>
-              <div class="term-titlebar">
-                <span class="term-dot term-dot-red"></span>
-                <span class="term-dot term-dot-yellow"></span>
-                <span class="term-dot term-dot-green"></span>
-                <span class="term-label" id="fragPreviewLabel">NovaLyrics</span>
-              </div>
-              <div class="term-body">
-                <div class="term-header">
-                  <span class="term-prompt">&gt;_</span>
-                  <span class="term-title" id="fragPreviewTitle"></span>
-                  <div class="term-artist" id="fragPreviewArtist"></div>
-                </div>
-                <div class="term-output">
-                  <div class="term-lyrics" id="fragPreviewLyrics"></div>
-                </div>
-              </div>
+              <!-- Color y Terminal: frame renderizado por el mismo código que exporta el video -->
+              <img class="term-frame" id="fragPreviewFrame" alt="Vista previa del video" hidden />
               <!-- Componentes 1:1 del reproductor (solo visibles en Formato Reproductor) -->
               <div class="player-preview-body">
                 <div class="player-preview-card">

@@ -966,26 +966,8 @@ h2 {
   align-self: auto;
 }
 
-/* Vista previa del export: una terminal sin fondo externo, igual al lienzo
-   vertical que se publica. */
+/* Vista previa del export: lienzo vertical idéntico al que se publica. */
 .term-stage {
-  --term-window: #070b0f;
-  --term-window-end: #0a1619;
-  --term-glow-a: rgba(12, 112, 91, 0.24);
-  --term-glow-b: rgba(12, 77, 112, 0.20);
-  --term-titlebar: #11181c;
-  --term-titlebar-text: #b1c6c3;
-  --term-titlebar-line: #366c69;
-  --term-title: #ecfad4;
-  --term-artist: #71e2ae;
-  --term-prompt: #5feba9;
-  --term-lyric: #4ce8ca;
-  --term-lyric-current: #e4ffff;
-  --term-lyric-future: #506f70;
-  --term-cursor: #92ffe1;
-  --term-panel-line: #287268;
-  --term-grid: rgba(35, 118, 105, 0.18);
-  --term-status: #69ffb8;
   position: relative;
   container-type: inline-size;
   aspect-ratio: 9 / 16;
@@ -997,59 +979,7 @@ h2 {
   overflow: hidden;
   box-shadow: var(--shadow);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  background:
-    radial-gradient(circle at 16% 28%, var(--term-glow-a), transparent 42%),
-    radial-gradient(circle at 84% 74%, var(--term-glow-b), transparent 46%),
-    linear-gradient(165deg, var(--term-window), var(--term-window-end));
-  font-family: "Menlo", "SF Mono", "DejaVu Sans Mono", "Courier New", monospace;
-}
-
-.term-stage::before {
-  position: absolute;
-  z-index: 0;
-  inset: 0;
-  background-image:
-    linear-gradient(var(--term-grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--term-grid) 1px, transparent 1px);
-  background-size: 9cqw 9cqw;
-  content: "";
-  opacity: 0.55;
-  pointer-events: none;
-}
-
-.term-titlebar {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 8.2%;
-  padding: 2.5cqw 3.5cqw;
-  background: var(--term-titlebar);
-  border: 0;
-  border-bottom: 1px solid var(--term-titlebar-line);
-}
-
-.term-dot {
-  width: 3cqw;
-  height: 3cqw;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.term-dot-red    { background: #ff5f56; }
-.term-dot-yellow { background: #ffbd2e; }
-.term-dot-green  { background: #27c93f; }
-
-.term-label {
-  flex: 1;
-  text-align: center;
-  color: var(--term-titlebar-text);
-  font-size: 3.1cqw;
-  letter-spacing: 0.03em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 0 8px;
+  background: #08090b;
 }
 
 .term-close {
@@ -1068,108 +998,6 @@ h2 {
   padding: 0 6px;
 }
 .term-close:hover { color: var(--text); }
-
-.term-body {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  height: 91.8%;
-  min-height: 0;
-  padding: 7cqw 10cqw 9cqw;
-  background: transparent;
-  border: 0;
-}
-
-.term-header {
-  margin: 3cqw 0 0;
-  text-align: center;
-}
-
-.term-prompt { color: var(--term-prompt); font-weight: 700; }
-
-.term-title {
-  color: var(--term-title);
-  font-weight: 700;
-  font-size: var(--term-title-size, 5.7cqw);
-  letter-spacing: -0.025em;
-}
-
-.term-artist {
-  color: var(--term-artist);
-  margin-top: 1.5cqw;
-  font-size: var(--term-artist-size, 3.2cqw);
-  font-weight: 400;
-}
-
-.term-output {
-  position: relative;
-  align-self: center;
-  min-height: 47cqw;
-  max-height: 96cqw;
-  overflow: hidden;
-  padding: 4cqw 5.5cqw;
-}
-
-.term-lyrics {
-  text-align: center;
-  font-weight: 700;
-  font-size: var(--term-lyric-size, 6.4cqw);
-  line-height: var(--term-lyric-leading, 1.55);
-  color: transparent;
-  min-height: 28cqw;
-}
-
-.term-line { display: block; }
-
-/* Las palabras futuras mantienen contexto sin competir con la activa. */
-.term-word {
-  color: var(--term-lyric-future);
-  transition: color 0.06s ease;
-}
-
-.term-word.revealed {
-  color: var(--term-lyric);
-}
-
-.term-word.current {
-  color: var(--term-lyric-current);
-  text-decoration: underline;
-  text-decoration-color: var(--term-status);
-  text-decoration-thickness: 0.7cqw;
-  text-underline-offset: 1.35cqw;
-  text-shadow: 0.5cqw 0.7cqw 0 var(--term-lyric);
-}
-
-/* El modo clásico no anticipa las palabras: se escriben una a una junto al cursor. */
-.term-stage[data-lyric-style="typing"] .term-word:not(.revealed) {
-  color: transparent;
-}
-
-/* El modo de foco conserva un único verso fuente, pero permite envolver sus
-   palabras en hasta tres filas visibles para usar 75% del ancho disponible. */
-.term-stage[data-lyric-flow="line"] .term-output {
-  display: grid;
-  min-height: 62cqw;
-  max-height: none;
-  margin-inline: 0;
-  padding: 6cqw 2.5cqw;
-  place-items: center;
-}
-
-.term-stage[data-lyric-flow="line"] .term-lyrics {
-  min-height: 0;
-  font-size: calc(var(--term-lyric-size, 6.4cqw) * 1.42);
-  line-height: 1.34;
-  letter-spacing: 0.012em;
-}
-
-.term-stage[data-lyric-flow="line"] .term-line {
-  display: block;
-  text-align: center;
-  white-space: normal;
-  text-wrap: balance;
-}
 
 /* Selector de dos formatos: cada tarjeta explica el comportamiento antes
    de iniciar un render que puede tardar varios minutos. */
@@ -1400,63 +1228,6 @@ h2 {
 .type-sample-balanced { font-size: 1.25rem; }
 .type-sample-large { font-size: 1.5rem; }
 
-.term-stage[data-video-theme="midnight"] {
-  --term-window: #05081b; --term-window-end: #11113a; --term-glow-a: rgba(47, 71, 255, 0.28); --term-glow-b: rgba(188, 49, 255, 0.22);
-  --term-titlebar: #0d1130; --term-titlebar-text: #c7cfff; --term-titlebar-line: #4e5bc2; --term-title: #ecefff;
-  --term-artist: #98a5ff; --term-prompt: #aa8fff; --term-lyric: #69e5ff; --term-lyric-current: #effdff;
-  --term-lyric-future: #5b649d; --term-cursor: #a6f7ff;
-  --term-panel-line: #4e5bc2; --term-grid: rgba(73, 86, 188, 0.19); --term-status: #ca72ff;
-}
-.term-stage[data-video-theme="midnight"]::before { background-image: linear-gradient(35deg, transparent 48%, var(--term-grid) 49% 51%, transparent 52%), linear-gradient(90deg, var(--term-grid) 1px, transparent 1px); background-size: 18cqw 18cqw; }
-.term-stage[data-video-theme="sunset"] {
-  --term-window: #23091c; --term-window-end: #541827; --term-glow-a: rgba(255, 84, 64, 0.26); --term-glow-b: rgba(255, 183, 75, 0.20);
-  --term-titlebar: #40142b; --term-titlebar-text: #ffd3cf; --term-titlebar-line: #b44e64; --term-title: #fff4d3;
-  --term-artist: #ff9eab; --term-prompt: #ffc469; --term-lyric: #ffae69; --term-lyric-current: #fff5dd;
-  --term-lyric-future: #975b6b; --term-cursor: #ffd590;
-  --term-panel-line: #b04c5e; --term-grid: rgba(170, 67, 89, 0.18); --term-status: #ffc969;
-}
-.term-stage[data-video-theme="sunset"]::before { background-image: repeating-conic-gradient(from 190deg at 50% 110%, transparent 0 12deg, var(--term-grid) 13deg 14deg); background-size: 100% 100%; }
-.term-stage[data-video-theme="cloud"] {
-  --term-window: #e2ebf2; --term-window-end: #c0d7e5; --term-glow-a: rgba(111, 208, 222, 0.26); --term-glow-b: rgba(174, 139, 224, 0.22);
-  --term-titlebar: #eff5f8; --term-titlebar-text: #36495b; --term-titlebar-line: #829fb2; --term-title: #162a3d;
-  --term-artist: #1c6770; --term-prompt: #2e6f68; --term-lyric: #126276; --term-lyric-current: #052533;
-  --term-lyric-future: #5d7a8b; --term-cursor: #0d5e70;
-  --term-panel-line: #7497a8; --term-grid: rgba(102, 137, 154, 0.20); --term-status: #187970;
-}
-.term-stage[data-video-theme="cloud"]::before { background-image: radial-gradient(circle, var(--term-grid) 0 1px, transparent 1.5px); background-size: 7cqw 7cqw; }
-.term-stage[data-video-font="mono"] { font-family: "Menlo", "SF Mono", "DejaVu Sans Mono", "Courier New", monospace; }
-.term-stage[data-video-font="modern"] { font-family: "Avenir Next", "Helvetica Neue", "DejaVu Sans", sans-serif; }
-.term-stage[data-video-font="editorial"] { font-family: "Georgia", "DejaVu Serif", serif; }
-.term-stage[data-video-font-size="compact"] {
-  --term-title-size: 5cqw;
-  --term-artist-size: 2.8cqw;
-  --term-lyric-size: 5.4cqw;
-  --term-lyric-leading: 1.55;
-}
-.term-stage[data-video-font-size="balanced"] {
-  --term-title-size: 5.7cqw;
-  --term-artist-size: 3.2cqw;
-  --term-lyric-size: 6.4cqw;
-  --term-lyric-leading: 1.55;
-}
-.term-stage[data-video-font-size="large"] {
-  --term-title-size: 6.4cqw;
-  --term-artist-size: 3.7cqw;
-  --term-lyric-size: 7.3cqw;
-  --term-lyric-leading: 1.52;
-}
-
-/* La densidad adapta el hook sin anular la escala elegida. Antes, min()
-   llevaba Compacta, Equilibrada y Grande al mismo tamaño máximo. */
-.term-stage[data-video-font-size="compact"] .term-lyrics[data-density="dense"] { font-size: 4.6cqw; }
-.term-stage[data-video-font-size="balanced"] .term-lyrics[data-density="dense"] { font-size: 5.1cqw; }
-.term-stage[data-video-font-size="large"] .term-lyrics[data-density="dense"] { font-size: 5.7cqw; }
-.term-stage[data-video-font-size="compact"] .term-lyrics[data-density="very-dense"] { font-size: 3.9cqw; }
-.term-stage[data-video-font-size="balanced"] .term-lyrics[data-density="very-dense"] { font-size: 4.35cqw; }
-.term-stage[data-video-font-size="large"] .term-lyrics[data-density="very-dense"] { font-size: 4.9cqw; }
-.term-lyrics[data-density="dense"] { line-height: 1.52; }
-.term-lyrics[data-density="very-dense"] { line-height: 1.48; }
-
 .lyric-style-picker legend {
   color: var(--text-dim);
   font-size: 0.78rem;
@@ -1497,20 +1268,6 @@ h2 {
 .lyric-style-option:has(input:checked):hover { border-color: var(--accent); }
 .lyric-style-name { color: var(--text); font-size: 0.84rem; font-weight: 700; }
 .lyric-style-description { color: var(--text-dim); font-size: 0.72rem; line-height: 1.45; }
-
-/* Cursor de bloque parpadeante al final de la última palabra revelada.
-   step-end para que el parpadeo sea instantáneo (como una terminal real,
-   no un fade). */
-.term-cursor {
-  color: var(--term-cursor);
-  margin-left: 2px;
-  animation: term-blink 0.8s step-end infinite;
-}
-
-@keyframes term-blink {
-  0%, 50%   { opacity: 1; }
-  50.01%, 100% { opacity: 0; }
-}
 
 /* Status dentro de una step-card, para no dejarlo suelto abajo. */
 .step-card .status-box {
@@ -2705,7 +2462,6 @@ body.ambient-playing .np-lyrics::before {
   word-break: break-all;
 }
 
-
 /* ============================================================
    DESCUBRIR (Spotify)
 ============================================================ */
@@ -3438,7 +3194,6 @@ body:has(#view-player.active) .mini-player { display: none; }
 
   .eq i { animation: none; }
   .np-artwork.track-change { animation: none; }
-  .term-cursor { animation: none; }
 }
 
 /* ---------- Reproductor clásico ----------
@@ -3526,6 +3281,10 @@ body:has(#view-player.active) .mini-player { display: none; }
 }
 
 .term-stage[data-video-layout="player"]::before {
+  position: absolute;
+  z-index: 0;
+  content: "";
+  pointer-events: none;
   inset: -8%;
   background:
     linear-gradient(rgba(6, 7, 9, 0.58), rgba(6, 7, 9, 0.72)),
@@ -3535,11 +3294,6 @@ body:has(#view-player.active) .mini-player { display: none; }
   filter: blur(3.75cqw) saturate(0.86);
   opacity: 1;
   transform: scale(1.08);
-}
-
-.term-stage[data-video-layout="player"] .term-titlebar,
-.term-stage[data-video-layout="player"] .term-body {
-  display: none !important;
 }
 
 .term-stage:not([data-video-layout="player"]) .player-preview-body {
@@ -4026,100 +3780,21 @@ body:has(#view-player.active) .mini-player { display: none; }
   color: var(--text-dim);
 }
 
-/* ---- Formato Color -----------------------------------------------------
-   Réplica de make_color_frame(): fondo liso, letra grande dentro de la zona
-   segura y pie con título, artista y progreso. Los colores llegan por
-   --cf-bg / --cf-text; las proporciones salen de los píxeles del video 1080x1920. */
-.term-stage[data-video-layout="color"] {
-  --cf-bg: #5b21f5;
-  --cf-text: #ffe14d;
-  --cf-future: color-mix(in srgb, var(--cf-text) 34%, var(--cf-bg));
-  --term-lyric-leading: 1.55;
-  background: var(--cf-bg);
-}
-.term-stage[data-video-layout="color"] .term-titlebar,
-.term-stage[data-video-layout="color"] .term-prompt,
-.term-stage[data-video-layout="color"] .term-cursor { display: none; }
-
-.term-stage[data-video-layout="color"]::before {
-  inset: auto;
-  top: 77.3%;
-  left: 50%;
-  width: 40.7cqw;
-  height: 0.46cqw;
-  border-radius: 1cqw;
-  transform: translateX(-50%);
-  background:
-    linear-gradient(90deg, var(--cf-text) var(--cf-progress, 0%),
-      color-mix(in srgb, var(--cf-text) 20%, var(--cf-bg)) var(--cf-progress, 0%));
-  opacity: 1;
-}
-
-.term-stage[data-video-layout="color"] .term-body {
+/* ---- Previsualización de Color y Terminal ----
+   Muestra un frame real del renderizador (mismo código que la exportación). */
+.term-frame { display: none; }
+.term-stage[data-video-layout="color"] .term-frame,
+.term-stage[data-video-layout="terminal"] .term-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   display: block;
+  width: 100%;
   height: 100%;
-  padding: 0;
+  object-fit: cover;
 }
-.term-stage[data-video-layout="color"] .term-output {
-  position: absolute;
-  inset: 0 13cqw 9.5cqw;
-  display: grid;
-  align-content: center;
-  min-height: 0;
-  max-height: none;
-  padding: 0;
-}
-.term-stage[data-video-layout="color"] .term-lyrics { min-height: 0; }
-
-.term-stage[data-video-layout="color"] .term-header {
-  position: absolute;
-  top: 70.4%;
-  left: 8cqw;
-  right: 8cqw;
-  margin: 0;
-  text-align: center;
-  font-family: "Avenir Next", "Avenir", "Helvetica Neue", sans-serif;
-}
-.term-stage[data-video-layout="color"] .term-title {
-  display: block;
-  color: color-mix(in srgb, var(--cf-text) 78%, var(--cf-bg));
-  font-size: 2.96cqw;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-.term-stage[data-video-layout="color"] .term-artist {
-  color: color-mix(in srgb, var(--cf-text) 55%, var(--cf-bg));
-  margin-top: 1.4cqw;
-  font-size: 2.6cqw;
-  letter-spacing: 0.02em;
-}
-
-/* Relleno por palabra: --p lo mueve studio.js en cada frame. */
-.term-stage[data-video-layout="color"] .term-word,
-.term-stage[data-video-layout="color"] .term-word.revealed,
-.term-stage[data-video-layout="color"] .term-word.current {
-  --p: 0%;
-  color: transparent;
-  background: linear-gradient(90deg, var(--cf-text) var(--p), var(--cf-future) var(--p));
-  -webkit-background-clip: text;
-  background-clip: text;
-  text-decoration: none;
-  text-shadow: none;
-  transition: none;
-}
-.term-stage[data-video-layout="color"][data-lyric-style="typing"] .term-word:not(.revealed) {
-  background: none;
-}
-
-.term-stage[data-video-layout="color"][data-video-font-size="compact"] { --term-lyric-size: 7.02cqw; }
-.term-stage[data-video-layout="color"][data-video-font-size="compact"] .term-lyrics[data-density="dense"] { font-size: 5.98cqw; }
-.term-stage[data-video-layout="color"][data-video-font-size="compact"] .term-lyrics[data-density="very-dense"] { font-size: 5.07cqw; }
-.term-stage[data-video-layout="color"][data-video-font-size="balanced"] { --term-lyric-size: 8.32cqw; }
-.term-stage[data-video-layout="color"][data-video-font-size="balanced"] .term-lyrics[data-density="dense"] { font-size: 6.63cqw; }
-.term-stage[data-video-layout="color"][data-video-font-size="balanced"] .term-lyrics[data-density="very-dense"] { font-size: 5.65cqw; }
-.term-stage[data-video-layout="color"][data-video-font-size="large"] { --term-lyric-size: 9.49cqw; }
-.term-stage[data-video-layout="color"][data-video-font-size="large"] .term-lyrics[data-density="dense"] { font-size: 7.41cqw; }
-.term-stage[data-video-layout="color"][data-video-font-size="large"] .term-lyrics[data-density="very-dense"] { font-size: 6.37cqw; }
+.term-stage[data-video-layout="color"] .term-close,
+.term-stage[data-video-layout="terminal"] .term-close { z-index: 3; }
 
 /* ---- Selector de colores (Estudio) ---- */
 .video-color-picker { margin-top: 16px; padding: 0; border: 0; }
@@ -4234,3 +3909,5 @@ body:has(#view-player.active) .mini-player { display: none; }
   .color-custom { grid-template-columns: 1fr; }
   .color-swap { justify-self: center; transform: rotate(90deg); }
 }
+
+.studio-preview-empty[hidden] { display: none; }

@@ -22,17 +22,14 @@ const fragEndInput = document.getElementById("fragEnd");
 const fragPreviewBtn = document.getElementById("fragPreviewBtn");
 const fragPreviewAudio = document.getElementById("fragPreviewAudio");
 const fragPreviewStage = document.getElementById("fragPreviewStage");
-const fragPreviewLyrics = document.getElementById("fragPreviewLyrics");
 const fragPreviewClose = document.getElementById("fragPreviewClose");
-const fragPreviewLabel = document.getElementById("fragPreviewLabel");
-const fragPreviewTitle = document.getElementById("fragPreviewTitle");
-const fragPreviewArtist = document.getElementById("fragPreviewArtist");
 const videoLayoutInputs = document.querySelectorAll('input[name="videoLayout"]');
 const lyricStyleInputs = document.querySelectorAll('input[name="videoLyricStyle"]');
 const lyricFlowInputs = document.querySelectorAll('input[name="videoLyricFlow"]');
 const videoThemeInputs = document.querySelectorAll('input[name="videoTheme"]');
 const videoFontFamily = document.getElementById("videoFontFamily");
 const videoFontSizeInputs = document.querySelectorAll('input[name="videoFontSize"]');
+const fragPreviewFrame = document.getElementById("fragPreviewFrame");
 const videoBgColor = document.getElementById("videoBgColor");
 const videoTextColor = document.getElementById("videoTextColor");
 const videoPlayerVolume = document.getElementById("videoPlayerVolume");
@@ -48,12 +45,6 @@ const studioVocalsAudio = document.getElementById("studioVocalsAudio");
 
 let videoStanzas = null;
 let fragPreviewRAF = null;
-
-const LYRIC_STYLE_LABELS = {
-  karaoke: "Karaoke terminal",
-  typing: "Escritura progresiva",
-};
-const TERMINAL_TITLE = "NovaLyrics";
 
 function selectedVideoLayout() {
   return document.querySelector('input[name="videoLayout"]:checked')?.value || "player";
@@ -143,7 +134,7 @@ function updateColorControls() {
         ? `Contraste suficiente (${ratio.toFixed(1)}:1): se lee bien en letra grande.`
         : `Contraste bajo (${ratio.toFixed(1)}:1): la letra costará leerse. Prueba una paleta más marcada.`;
   }
-  if (!fragPreviewStage.hidden) applyPreviewLyricStyle();
+  requestPreviewFrame(true);
 }
 
 function selectedBgColor() {
@@ -200,9 +191,7 @@ function applyPreviewLyricStyle() {
   fragPreviewStage.dataset.videoTheme = selectedVideoTheme();
   fragPreviewStage.dataset.videoFont = videoFontFamily?.value || "mono";
   fragPreviewStage.dataset.videoFontSize = selectedFontSize();
-  fragPreviewStage.style.setProperty("--cf-bg", selectedBgColor());
-  fragPreviewStage.style.setProperty("--cf-text", selectedTextColor());
-  return LYRIC_STYLE_LABELS[style];
+  requestPreviewFrame(true);
 }
 
 function _studioInitials(song) {
@@ -476,8 +465,6 @@ fragPreviewBtn.addEventListener("click", async () => {
   // Rellenar metadatos en cabecera terminal y reproductor.
   const titulo = document.getElementById("videoTitulo").value.trim() || song.title || stem;
   const artista = document.getElementById("videoArtista").value.trim() || song.artist || "";
-  fragPreviewTitle.textContent = titulo;
-  fragPreviewArtist.textContent = artista;
 
   const playerPreviewTitle = document.getElementById("playerPreviewTitle");
   const playerPreviewArtist = document.getElementById("playerPreviewArtist");
@@ -499,11 +486,12 @@ fragPreviewBtn.addEventListener("click", async () => {
   }
 
   applyPreviewLyricStyle();
-  fragPreviewLabel.textContent = TERMINAL_TITLE;
 
   _renderTerminalLyrics(stanzas);
   fragPreviewStage.hidden = false;
   if (studioPreviewEmpty) studioPreviewEmpty.hidden = true;
+  _frameLastT = -1;
+  requestPreviewFrame(true);
 
   // Audio: recargamos, buscamos al start y reproducimos.
   fragPreviewAudio.src = `/canciones/${encodeURIComponent(song.nombre)}`;
@@ -559,7 +547,6 @@ lyricStyleInputs.forEach((input) => {
   input.addEventListener("change", () => {
     if (fragPreviewStage.hidden) return;
     applyPreviewLyricStyle();
-    fragPreviewLabel.textContent = TERMINAL_TITLE;
   });
 });
 
@@ -605,8 +592,6 @@ updatePlayerVolume();
 
 const _fragState = {
   stanzas: null,
-  activeStanza: null,
-  activeTerminalLine: null,
   activePlayerPage: null,
   activePlayerLine: null,
   fragmentStart: 0,
@@ -629,8 +614,6 @@ function _selectedPlayerLines(stanzas) {
 
 function _renderTerminalLyrics(stanzas) {
   _fragState.stanzas = stanzas;
-  _fragState.activeStanza = null;
-  _fragState.activeTerminalLine = null;
   _fragState.activePlayerPage = null;
   _fragState.activePlayerLine = null;
   const playerPreviewLyrics = document.getElementById("playerPreviewLyrics");
@@ -638,7 +621,6 @@ function _renderTerminalLyrics(stanzas) {
     playerPreviewLyrics.innerHTML = "";
     playerPreviewLyrics.style.transform = "translateY(0px)";
   }
-  if (fragPreviewLyrics) fragPreviewLyrics.innerHTML = "";
   if (selectedVideoLayout() === "player") {
     const selectedLines = _selectedPlayerLines(stanzas);
     const isLineFlow = selectedLyricFlow() === "line";
@@ -760,40 +742,69 @@ function _updatePlayerPreview(t, stanzas) {
   }
 }
 
-function _buildStanzaDom(stanza) {
-  fragPreviewLyrics.innerHTML = "";
-  const totalChars = stanza.reduce((sum, line) => sum + (line.text || "").length, 0);
-  const estimatedWrappedLines = stanza.reduce(
-    (sum, line) => sum + Math.max(1, Math.ceil((line.text || "").length / 24)),
-    0
-  );
-  fragPreviewLyrics.dataset.density =
-    totalChars > 170 || estimatedWrappedLines > 8
-      ? "very-dense"
-      : totalChars > 105 || estimatedWrappedLines > 5
-        ? "dense"
-        : "normal";
-  stanza.forEach((line) => {
-    const l = document.createElement("div");
-    l.className = "term-line";
-    const words = line.words && line.words.length
-      ? line.words
-      : [{ text: line.text, start: line.start, end: line.end }];
-    words.forEach((w, i) => {
-      const sp = document.createElement("span");
-      sp.className = "term-word";
-      sp.textContent = w.text;
-      sp.dataset.start = w.start;
-      sp.dataset.end = w.end;
-      l.appendChild(sp);
-      if (i < words.length - 1) l.appendChild(document.createTextNode(" "));
-    });
-    fragPreviewLyrics.appendChild(l);
+// ---- Previsualización de Color y Terminal: frames reales del renderizador ----
+// El servidor usa el mismo código que la exportación, así que la vista previa
+// es idéntica al video. Se pide un frame a la vez para no saturar el render.
+let _frameInFlight = false;
+let _framePending = null;
+let _frameLastT = -1;
+let _frameUrl = null;
+const FRAME_MIN_STEP = 1 / 20;
+
+function _previewMeta() {
+  const song = canciones.find((c) => c.stem === studioSongSelect.value);
+  return {
+    titulo: document.getElementById("videoTitulo").value.trim() || song?.title || studioSongSelect.value,
+    artista: document.getElementById("videoArtista").value.trim() || song?.artist || "",
+  };
+}
+
+async function requestPreviewFrame(force = false) {
+  const layout = selectedVideoLayout();
+  if (layout === "player" || fragPreviewStage.hidden || !fragPreviewFrame || !studioSongSelect.value) return;
+  const t = fragPreviewAudio.currentTime || 0;
+  if (!force && Math.abs(t - _frameLastT) < FRAME_MIN_STEP) return;
+  if (_frameInFlight) {
+    _framePending = { force: force || Boolean(_framePending?.force) };
+    return;
+  }
+  _frameInFlight = true;
+  _frameLastT = t;
+  const { titulo, artista } = _previewMeta();
+  const params = new URLSearchParams({
+    t: t.toFixed(3),
+    layout_style: layout,
+    theme: selectedVideoTheme(),
+    font_family: videoFontFamily?.value || "mono",
+    font_size: selectedFontSize(),
+    lyric_style: selectedLyricStyle(),
+    lyric_flow: selectedLyricFlow(),
+    bg_color: selectedBgColor(),
+    text_color: selectedTextColor(),
+    titulo,
+    artista,
   });
-  const cursor = document.createElement("span");
-  cursor.className = "term-cursor";
-  cursor.textContent = "█";
-  fragPreviewLyrics.appendChild(cursor);
+  if (Number.isFinite(_fragState.fragmentStart)) params.set("start", _fragState.fragmentStart);
+  if (Number.isFinite(_fragState.fragmentEnd)) params.set("end", _fragState.fragmentEnd);
+  try {
+    const res = await fetch(`/api/video/${encodeURIComponent(studioSongSelect.value)}/frame?${params}`);
+    if (res.ok) {
+      const url = URL.createObjectURL(await res.blob());
+      const previous = _frameUrl;
+      _frameUrl = url;
+      fragPreviewFrame.src = url;
+      if (previous) URL.revokeObjectURL(previous);
+    }
+  } catch {
+    // Un frame perdido no debe romper la reproducción de la vista previa.
+  } finally {
+    _frameInFlight = false;
+    if (_framePending) {
+      const { force: pendingForce } = _framePending;
+      _framePending = null;
+      requestPreviewFrame(pendingForce);
+    }
+  }
 }
 
 function _updateFragTerminal() {
@@ -805,78 +816,7 @@ function _updateFragTerminal() {
     _updatePlayerPreview(t, stanzas);
     return;
   }
-
-  if (selectedLyricFlow() === "line") {
-    const selectedLines = _selectedPlayerLines(stanzas);
-    let activeLineIndex = 0;
-    selectedLines.forEach((line, index) => {
-      if (Number.parseFloat(line.start) <= t) activeLineIndex = index;
-    });
-    const activeLine = selectedLines[activeLineIndex] || null;
-    if (!activeLine) return;
-    if (activeLine !== _fragState.activeTerminalLine) {
-      _fragState.activeTerminalLine = activeLine;
-      _fragState.activeStanza = null;
-      _buildStanzaDom([activeLine]);
-    }
-  } else {
-    _fragState.activeTerminalLine = null;
-    let active = null;
-    for (const stanza of stanzas) {
-      if (!stanza.length) continue;
-      if (stanza[0].start <= t) active = stanza;
-      else break;
-    }
-    if (!active) active = stanzas.find((s) => s.length) || null;
-    if (!active) return;
-
-    if (active !== _fragState.activeStanza) {
-      _fragState.activeStanza = active;
-      _buildStanzaDom(active);
-    }
-  }
-
-  // Marcar palabras reveladas y mover el cursor.
-  const words = fragPreviewLyrics.querySelectorAll(".term-word");
-  const isColor = selectedVideoLayout() === "color";
-  let lastRevealed = null;
-  words.forEach((w) => {
-    const start = parseFloat(w.dataset.start);
-    const end = parseFloat(w.dataset.end);
-    if (isColor) {
-      // Formato Color: relleno horizontal por palabra, igual que el video.
-      const wipe = selectedLyricStyle() === "typing" || t >= end
-        ? (t >= start ? 1 : 0)
-        : Math.max(0, Math.min(1, (t - start) / Math.max(0.001, end - start)));
-      w.style.setProperty("--p", `${(wipe * 100).toFixed(1)}%`);
-    }
-    if (t >= start) {
-      w.classList.add("revealed");
-      w.classList.toggle("current", t < end);
-      lastRevealed = w;
-    } else {
-      w.classList.remove("revealed");
-      w.classList.remove("current");
-    }
-  });
-
-  if (isColor) {
-    const from = Number.isFinite(_fragState.fragmentStart) ? _fragState.fragmentStart : 0;
-    const to = Number.isFinite(_fragState.fragmentEnd) ? _fragState.fragmentEnd : fragPreviewAudio.duration;
-    const progress = to > from ? Math.max(0, Math.min(1, (t - from) / (to - from))) : 0;
-    fragPreviewStage.style.setProperty("--cf-progress", `${(progress * 100).toFixed(2)}%`);
-  }
-
-  const cursor = fragPreviewLyrics.querySelector(".term-cursor");
-  if (cursor) {
-    if (lastRevealed) {
-      lastRevealed.after(cursor);
-    } else {
-      // Ninguna palabra aún: cursor al inicio de la primera línea.
-      const first = fragPreviewLyrics.querySelector(".term-line");
-      if (first) first.insertBefore(cursor, first.firstChild);
-    }
-  }
+  requestPreviewFrame(false);
 }
 
 function _startFragLoop() {
