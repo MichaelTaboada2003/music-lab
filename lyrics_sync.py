@@ -29,6 +29,8 @@ import tempfile
 import unicodedata
 from pathlib import Path
 
+import numpy as np
+
 try:
     import whisper_timestamped as whisper
 except ImportError:
@@ -253,7 +255,53 @@ def _transcribe(
         kwargs["initial_prompt"] = initial_prompt
     transcription_language = None if language in (None, "", "auto") else language
     result = whisper.transcribe(model, audio, language=transcription_language, **kwargs)
+    _recover_uncovered_tail(model, audio, result, transcription_language, kwargs)
     return result, duration
+
+
+# Whisper a veces se detiene tras un coro repetido y deja sin transcribir el
+# resto del audio aunque siga habiendo voz. Si queda un tramo final así de
+# largo, se vuelve a transcribir solo ese tramo y se une al resultado.
+TAIL_RECOVERY_MIN_GAP = 4.0     # segundos sin transcribir para intentar recuperar
+TAIL_RECOVERY_MIN_RMS = 0.03    # energía mínima para considerar que hay voz
+TAIL_RECOVERY_MAX_PASSES = 3
+
+
+def _last_word_end(result) -> float:
+    ends = [
+        word["end"]
+        for segment in result.get("segments", [])
+        for word in segment.get("words", [])
+    ]
+    return max(ends) if ends else 0.0
+
+
+def _recover_uncovered_tail(model, audio, result, language, kwargs) -> None:
+    sample_rate = WHISPER_SAMPLE_RATE
+    duration = len(audio) / sample_rate
+    for _ in range(TAIL_RECOVERY_MAX_PASSES):
+        covered = _last_word_end(result)
+        if duration - covered < TAIL_RECOVERY_MIN_GAP:
+            return
+        start = max(0.0, covered - 0.2)
+        tail = audio[int(start * sample_rate):]
+        if len(tail) == 0 or float(np.sqrt(np.mean(tail ** 2))) < TAIL_RECOVERY_MIN_RMS:
+            return
+        print(f"Recuperando tramo sin transcribir: {start:.1f}s - {duration:.1f}s")
+        extra = whisper.transcribe(model, tail, language=language, **kwargs)
+        new_segments = []
+        for segment in extra.get("segments", []):
+            shifted = dict(segment)
+            shifted["start"] = segment["start"] + start
+            shifted["end"] = segment["end"] + start
+            shifted["words"] = [
+                {**word, "start": word["start"] + start, "end": word["end"] + start}
+                for word in segment.get("words", [])
+            ]
+            new_segments.append(shifted)
+        if not new_segments or _last_word_end({"segments": new_segments}) <= covered + 1.0:
+            return
+        result["segments"] = list(result.get("segments", [])) + new_segments
 
 
 MAX_WORD_DURATION = 1.2   # segundos: nadie canta una sola palabra por más que esto

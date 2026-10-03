@@ -123,5 +123,59 @@ class WhisperPrecisionTests(unittest.TestCase):
                 os.environ["MUSIC_LAB_WHISPER_DEVICE"] = previo
 
 
+class TailRecoveryTests(unittest.TestCase):
+    SR = lyrics_sync.WHISPER_SAMPLE_RATE
+
+    def _segment(self, start, end):
+        return {"start": start, "end": end, "words": [{"text": "hola", "start": start, "end": end}]}
+
+    def _recover(self, audio, first_end, fake):
+        result = {"segments": [self._segment(0.1, first_end)]}
+        original = lyrics_sync.whisper
+        lyrics_sync.whisper = fake
+        try:
+            lyrics_sync._recover_uncovered_tail(object(), audio, result, "es", {})
+        finally:
+            lyrics_sync.whisper = original
+        return result
+
+    def test_transcribe_el_tramo_final_y_desplaza_los_tiempos(self):
+        calls = []
+
+        class Fake:
+            @staticmethod
+            def transcribe(model, tail, language=None, **kwargs):
+                calls.append(len(tail) / lyrics_sync.WHISPER_SAMPLE_RATE)
+                return {"segments": [{"start": 0.4, "end": 5.0, "words": [
+                    {"text": "otra", "start": 0.4, "end": 8.0}]}]}
+
+        audio = np.full(self.SR * 20, 0.1, dtype=np.float32)
+        result = self._recover(audio, 11.7, Fake)
+        self.assertEqual(len(calls), 1)
+        recovered = result["segments"][-1]
+        self.assertAlmostEqual(recovered["words"][0]["start"], 11.5 + 0.4, places=3)
+        self.assertAlmostEqual(lyrics_sync._last_word_end(result), 11.5 + 8.0, places=3)
+
+    def test_no_reintenta_si_el_final_no_tiene_voz(self):
+        class Fake:
+            @staticmethod
+            def transcribe(*args, **kwargs):
+                raise AssertionError("no debía transcribir silencio")
+
+        audio = np.zeros(self.SR * 25, dtype=np.float32)
+        result = self._recover(audio, 11.7, Fake)
+        self.assertEqual(len(result["segments"]), 1)
+
+    def test_no_reintenta_si_el_hueco_es_corto(self):
+        class Fake:
+            @staticmethod
+            def transcribe(*args, **kwargs):
+                raise AssertionError("el hueco es menor al mínimo")
+
+        audio = np.full(self.SR * 14, 0.1, dtype=np.float32)
+        result = self._recover(audio, 11.7, Fake)
+        self.assertEqual(len(result["segments"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
