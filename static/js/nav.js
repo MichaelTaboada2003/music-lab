@@ -16,6 +16,31 @@ import {
 const navItems = document.querySelectorAll(".nav-item");
 const views = document.querySelectorAll(".view");
 
+// La pestaña activa vive en la URL (#view-…) para que al recargar la página
+// el usuario se quede donde estaba; replaceState evita llenar el historial.
+// localStorage cubre el caso de abrir la dirección sin hash.
+const VIEW_KEY = "music-lab:view";
+
+function rememberView(view) {
+  const hash = `#view-${view}`;
+  if (window.location.hash !== hash) {
+    history.replaceState(null, "", hash);
+  }
+  try {
+    localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    // Almacenamiento bloqueado: la URL sigue siendo suficiente.
+  }
+}
+
+function storedView() {
+  try {
+    return localStorage.getItem(VIEW_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function activateView(view) {
   const btn = document.querySelector(`.nav-item[data-view="${view}"]`);
   const section = document.getElementById(`view-${view}`);
@@ -26,6 +51,7 @@ export function activateView(view) {
   btn.classList.add("active");
   section.classList.add("active");
   document.body.dataset.activeView = view;
+  rememberView(view);
 
   if (view === "lyrics") refreshLyricsSongs();
   if (view === "trim") refreshSongSelect(trimSongSelect, onTrimSongChange);
@@ -46,7 +72,10 @@ navItems.forEach((btn) => {
 
 export function activateFromHash() {
   const m = /^#view-([\w-]+)$/.exec(window.location.hash || "");
-  if (m) activateView(m[1]);
+  if (m && activateView(m[1])) return;
+  // Sin hash válido (p. ej. la URL base): vuelve a la última pestaña usada.
+  const last = storedView();
+  if (!m && last) activateView(last);
 }
 
 window.addEventListener("hashchange", activateFromHash);
