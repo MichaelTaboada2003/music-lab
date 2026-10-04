@@ -288,8 +288,7 @@ def paste_cover(img, path, x, y, side, radius, shadow=True):
 
 # =============================================================== COLOR =======
 
-COLOR_MARGIN_L = 96
-COLOR_TEXT_W = 804
+COLOR_TEXT_W = 864          # márgenes simétricos de 108 px a cada lado
 COLOR_FOCUS_Y = 880
 COLOR_NEIGHBOR = 0.58
 COLOR_DIM = 0.30
@@ -299,7 +298,11 @@ COLOR_ACTIVE_SIZE = 96
 COLOR_LEADING = 1.08
 COLOR_HEADER_Y = 176
 COLOR_COVER = 132
-COLOR_FOOTER_Y = 1412
+COLOR_FOOTER_Y = 1408
+COLOR_BAR_H = 12
+COLOR_BAR_X = (108, 972)
+COLOR_EQ_W = 56
+COLOR_HEADER_GAP = 30
 
 _SCENES = {}
 
@@ -312,8 +315,19 @@ def _remember(cache, key, build, limit=6):
     return cache[key]
 
 
+def _cover_loads(path) -> bool:
+    try:
+        p = Path(path)
+        _cover_tile(str(p), p.stat().st_mtime_ns, COLOR_COVER, 28)
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+
+
 def build_color_scene(size, bg, text, title=None, artist=None, cover_path=None):
-    """Capa fija: fondo con luz y viñeta, portada, título y artista."""
+    """Capa fija: fondo con luz y viñeta, portada, título y artista.
+
+    Devuelve ``(imagen, geometría)``; la geometría ubica el ecualizador animado."""
 
     def build():
         w, h = size
@@ -326,20 +340,27 @@ def build_color_scene(size, bg, text, title=None, artist=None, cover_path=None):
         img = _finish_background(base, size, vignette=0.16 * (1.0 - 0.75 * _luminance(bg)), grain=1.7)
         draw = ImageDraw.Draw(img)
 
-        x = COLOR_MARGIN_L
-        has_cover = bool(cover_path) and paste_cover(img, cover_path, x, COLOR_HEADER_Y, COLOR_COVER, 28)
-        text_x = x + (COLOR_COVER + 30 if has_cover else 0)
-        max_w = 900 - text_x - 70
         title_font = face("modern", "demi", 40)
         artist_font = face("modern", "medium", 31)
+        text_max = 560
+        title_txt = ellipsize(title, title_font, text_max) if title else ""
+        artist_txt = ellipsize(artist, artist_font, text_max) if artist else ""
+        block_w = max(text_w(title_txt, title_font) if title_txt else 0,
+                      text_w(artist_txt, artist_font) if artist_txt else 0)
+        has_cover = bool(cover_path) and _cover_loads(cover_path)
+        # Grupo [portada][título/artista][ecualizador] centrado en el lienzo.
+        group_w = (COLOR_COVER + COLOR_HEADER_GAP if has_cover else 0) + block_w + 36 + COLOR_EQ_W
+        x = (w - group_w) / 2
+        if has_cover:
+            paste_cover(img, cover_path, round(x), COLOR_HEADER_Y, COLOR_COVER, 28)
+            x += COLOR_COVER + COLOR_HEADER_GAP
         block_h = 40 * 1.25 + 8 + 31 * 1.25
-        top = COLOR_HEADER_Y + (COLOR_COVER - block_h) / 2 if has_cover else COLOR_HEADER_Y + 4
-        if title:
-            draw.text((text_x, top), ellipsize(title, title_font, max_w), font=title_font, fill=mix(bg, text, 0.96))
-        if artist:
-            draw.text((text_x, top + 40 * 1.25 + 8), ellipsize(artist, artist_font, max_w),
-                      font=artist_font, fill=mix(bg, text, 0.62))
-        return img
+        top = COLOR_HEADER_Y + (COLOR_COVER - block_h) / 2
+        if title_txt:
+            draw.text((x, top), title_txt, font=title_font, fill=mix(bg, text, 0.96))
+        if artist_txt:
+            draw.text((x, top + 40 * 1.25 + 8), artist_txt, font=artist_font, fill=mix(bg, text, 0.62))
+        return img, {"eq_x": x + block_w + 36}
 
     key = ("color", size, tuple(bg), tuple(text), title, artist, str(cover_path or ""))
     return _remember(_SCENES, key, build)
@@ -351,15 +372,15 @@ def _color_word_colors(bg, text, alpha):
     return sung, unsung
 
 
-def _draw_color_line(img, line, k, i, t, x, y, size, alpha, family, bg, text, lyric_style):
+def _draw_color_line(img, line, k, i, t, center_x, y, size, alpha, family, bg, text, lyric_style):
     """Dibuja un verso (todas sus filas) y devuelve su alto."""
     rows = rows_for(line, family, "display", size, COLOR_TEXT_W)
     font = face(family, "display", size)
     row_h = size * COLOR_LEADING
     sung_col, unsung_col = _color_word_colors(bg, text, alpha)
     space = text_w(" ", font)
-    for r, (words, _w) in enumerate(rows):
-        cx = x
+    for r, (words, row_w) in enumerate(rows):
+        cx = center_x - row_w / 2
         ry = y + r * row_h
         for word in words:
             wt = word["text"]
@@ -388,12 +409,13 @@ def render_color_frame(stanzas, t, *, size, bg, text, title=None, artist=None, c
                        lyric_flow="block", fragment_start=None, fragment_end=None, as_image=False):
     bg, text = _rgb(bg), _rgb(text)
     w, h = size
-    img = build_color_scene(size, bg, text, title, artist, cover_path).copy()
+    scene, geometry = build_color_scene(size, bg, text, title, artist, cover_path)
+    img = scene.copy()
     draw = ImageDraw.Draw(img)
     lines = fragment_lines(stanzas, fragment_start, fragment_end)
 
     _draw_color_progress(img, draw, t, bg, text, lines, fragment_start, fragment_end)
-    _draw_equalizer(draw, t, bg, text, w)
+    _draw_equalizer(draw, t, bg, text, geometry["eq_x"])
     if not lines:
         return img if as_image else np.asarray(img)
 
@@ -432,7 +454,7 @@ def render_color_frame(stanzas, t, *, size, bg, text, title=None, artist=None, c
         alpha = (1 - (1 - COLOR_DIM) * min(it["d"], 1.0)) * clamp01(2.4 - it["d"]) * fade_y
         if alpha <= 0.02:
             continue
-        _draw_color_line(img, lines[it["k"]], it["k"], i, t, COLOR_MARGIN_L, top, it["q"], alpha,
+        _draw_color_line(img, lines[it["k"]], it["k"], i, t, w / 2, top, it["q"], alpha,
                          family, bg, text, lyric_style)
     return img if as_image else np.asarray(img)
 
@@ -451,7 +473,7 @@ def _render_color_single(img, lines, i, t, family, active_size, bg, text, lyric_
             q -= 4
         height = _line_height(lines[k], family, q)
         top = COLOR_FOCUS_Y - height / 2 + offset
-        _draw_color_line(img, lines[k], k, i, t, COLOR_MARGIN_L, top, q, alpha, family, bg, text, lyric_style)
+        _draw_color_line(img, lines[k], k, i, t, img.width / 2, top, q, alpha, family, bg, text, lyric_style)
 
 
 def _draw_color_progress(img, draw, t, bg, text, lines, fragment_start, fragment_end):
@@ -459,27 +481,31 @@ def _draw_color_progress(img, draw, t, bg, text, lines, fragment_start, fragment
     end = fragment_end if fragment_end is not None else (float(lines[-1]["end"]) if lines else start + 1)
     total = max(0.001, end - start)
     progress = clamp01((t - start) / total)
-    x0, x1, y = COLOR_MARGIN_L, 900, COLOR_FOOTER_Y
-    draw.rounded_rectangle((x0, y, x1, y + 6), 3, fill=mix(bg, text, 0.20))
+    x0, x1 = COLOR_BAR_X
+    y, bar_h = COLOR_FOOTER_Y, COLOR_BAR_H
+    radius = bar_h / 2
+    draw.rounded_rectangle((x0, y, x1, y + bar_h), radius, fill=mix(bg, text, 0.22))
     filled = round((x1 - x0) * progress)
-    if filled >= 6:
-        draw.rounded_rectangle((x0, y, x0 + filled, y + 6), 3, fill=text)
-    knob = x0 + filled
-    draw.ellipse((knob - 9, y - 6, knob + 9, y + 12), fill=text)
-    label = face("modern", "medium", 27)
-    dim = mix(bg, text, 0.62)
-    draw_text(img, x0, y + 30, clock(t - start), label, dim)
+    if filled >= bar_h:
+        draw.rounded_rectangle((x0, y, x0 + filled, y + bar_h), radius, fill=text)
+    knob_r = 15
+    knob_x, knob_y = x0 + filled, y + radius
+    draw.ellipse((knob_x - knob_r - 4, knob_y - knob_r - 4, knob_x + knob_r + 4, knob_y + knob_r + 4),
+                 fill=mix(bg, text, 0.28))
+    draw.ellipse((knob_x - knob_r, knob_y - knob_r, knob_x + knob_r, knob_y + knob_r), fill=text)
+    label = face("modern", "demi", 32)
+    dim = mix(bg, text, 0.7)
+    draw_text(img, x0, y + 38, clock(t - start), label, dim)
     right = clock(total)
-    draw_text(img, x1 - text_w(right, label), y + 30, right, label, dim)
+    draw_text(img, x1 - text_w(right, label), y + 38, right, label, dim)
 
 
-def _draw_equalizer(draw, t, bg, text, width):
-    base_y = COLOR_HEADER_Y + 46
-    x = 900 - 4 * 16 + 8
+def _draw_equalizer(draw, t, bg, text, x):
+    center_y = COLOR_HEADER_Y + COLOR_COVER / 2
     col = mix(bg, text, 0.85)
     for j in range(4):
-        height = 10 + 30 * abs(math.sin(t * (2.6 + j * 1.15) + j * 1.7))
-        draw.rounded_rectangle((x + j * 16, base_y - height, x + j * 16 + 8, base_y), 4, fill=col)
+        height = 12 + 30 * abs(math.sin(t * (2.6 + j * 1.15) + j * 1.7))
+        draw.rounded_rectangle((x + j * 16, center_y + 20 - height, x + j * 16 + 8, center_y + 20), 4, fill=col)
 
 
 # ============================================================== TERMINAL =====

@@ -330,16 +330,25 @@ class ColorFormatTests(unittest.TestCase):
         self.assertGreater(karaoke, typing)
 
     def test_una_linea_por_pantalla_dibuja_solo_el_verso_activo(self):
-        stanzas = [[_line("primer verso largo", 0.0, 3.0), _line("segundo verso aparte", 3.0, 3.0)]]
-        empty = self._frame(1.0, stanzas=[])
+        first = [_line("primer verso largo", 0.0, 3.0)]
+        both = [first[0], _line("segundo verso aparte", 3.0, 3.0)]
+        bounds = dict(fragment_start=0.0, fragment_end=6.0)
 
-        def extent(frame):
-            rows = np.where((np.abs(frame.astype(int) - empty.astype(int)).max(axis=2) > 25)[300:1380].any(axis=1))[0]
-            return int(rows.max() - rows.min()) if len(rows) else 0
+        def frame(lines, flow):
+            return self._frame(1.0, stanzas=[lines], lyric_flow=flow, **bounds)
 
-        block = extent(self._frame(1.0, stanzas=stanzas, lyric_flow="block"))
-        single = extent(self._frame(1.0, stanzas=stanzas, lyric_flow="line"))
-        self.assertGreater(block, single)
+        # En modo línea el verso siguiente no se dibuja: el frame no cambia.
+        np.testing.assert_array_equal(frame(both, "line"), frame(first, "line"))
+        # En bloques el siguiente verso asoma tenue bajo el activo.
+        self.assertFalse(np.array_equal(frame(both, "block"), frame(first, "block")))
+
+    def test_la_letra_queda_centrada_horizontalmente(self):
+        empty = self._frame(2.0, stanzas=[])
+        frame = self._frame(2.0)
+        changed = (np.abs(frame.astype(int) - empty.astype(int)).max(axis=2) > 30)[600:1200]
+        columns = np.where(changed.any(axis=0))[0]
+        left, right = int(columns.min()), 1080 - int(columns.max())
+        self.assertLess(abs(left - right), 12)
 
     def test_color_invalido_se_rechaza(self):
         for bad in ("", "red", "#12345", "#GGGGGG"):
