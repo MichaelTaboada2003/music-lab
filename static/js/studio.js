@@ -7,6 +7,7 @@ import {
   renderProgress, hideProgress, formatSeconds, refreshSongSelect,
 } from "./api.js";
 import { showKaraoke } from "./karaoke.js";
+import { loadVideoGallery } from "./videos.js";
 import { canciones, indiceActual } from "./player.js";
 
 // ---- DOM refs ---------------------------------------------------------------
@@ -15,7 +16,6 @@ const studioSyncBtn = document.getElementById("studioSyncBtn");
 const studioStatus = document.getElementById("studioStatus");
 const videoGenerateBtn = document.getElementById("videoGenerateBtn");
 const videoStatus = document.getElementById("videoStatus");
-const videoGallery = document.getElementById("videoGallery");
 const stanzaPicker = document.getElementById("stanzaPicker");
 const fragStartInput = document.getElementById("fragStart");
 const fragEndInput = document.getElementById("fragEnd");
@@ -892,7 +892,7 @@ videoGenerateBtn.addEventListener("click", async () => {
         hideProgress("video");
         setStatus(videoStatus, `Video generado: ${result.video}`, "ok");
         videoGenerateBtn.disabled = false;
-        loadVideoGallery();
+        loadVideoGallery({ highlight: result.video });
       },
       onError: (err) => {
         hideProgress("video");
@@ -905,22 +905,3 @@ videoGenerateBtn.addEventListener("click", async () => {
     videoGenerateBtn.disabled = false;
   }
 });
-
-export async function loadVideoGallery() {
-  try {
-    const data = await apiGet("/api/videos");
-    videoGallery.innerHTML = "";
-    videoGallery.classList.toggle("has-overflow", data.videos.length > 4);
-    data.videos.forEach((name) => {
-      const card = document.createElement("div");
-      card.className = "video-card";
-      card.innerHTML = `
-        <video controls src="/videos/${encodeURIComponent(name)}"></video>
-        <div class="video-name">${name}</div>
-      `;
-      videoGallery.appendChild(card);
-    });
-  } catch (e) {
-    console.error(e);
-  }
-}

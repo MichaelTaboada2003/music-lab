@@ -6,9 +6,8 @@
 // nav (a través de discover) y nav necesita refrescar sus selectores.
 import { refreshSongSelect } from "./api.js";
 import { refreshLyricsSongs } from "./lyrics.js";
-import {
-  studioSongSelect, onStudioSongChange, loadVideoGallery,
-} from "./studio.js";
+import { studioSongSelect, onStudioSongChange } from "./studio.js";
+import { loadVideoGallery } from "./videos.js";
 import { trimSongSelect, onTrimSongChange } from "./trim.js";
 import {
   discoverLoaded, setDiscoverLoaded, loadRecap,

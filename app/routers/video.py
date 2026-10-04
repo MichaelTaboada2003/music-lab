@@ -1,22 +1,31 @@
 """
 Endpoints del generador de video estilo TikTok.
-  - POST /api/video/{stem}         → lanza job de renderizado
-  - GET  /api/videos               → lista mp4 generados
+  - POST /api/video/{stem}              → lanza job de renderizado
+  - GET  /api/video/{stem}/frame        → un frame de la exportación (vista previa)
+  - GET  /api/videos                    → biblioteca de mp4 generados (con metadatos)
+  - GET  /api/videos/{name}/poster      → portada del video
+  - GET  /api/videos/{name}/download    → descarga el mp4
+  - POST /api/videos/{name}/rename      → renombra
+  - POST /api/videos/{name}/reveal      → lo muestra en el Finder (macOS)
+  - DELETE /api/videos/{name}           → lo elimina
 """
 
 import io
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from PIL import Image
 
 import lyric_styles
 import tiktok_generator
+import video_library
 from library_artwork import resolve_cover
 
 from ..config import VIDEOS_DIR
@@ -110,15 +119,79 @@ def api_generar_video(stem: str, payload: VideoRequest):
     return {"job_id": job_id}
 
 
+def _video_path(name: str) -> Path:
+    """Resuelve un mp4 de la carpeta de videos; rechaza rutas y archivos ajenos."""
+    if Path(name).name != name or Path(name).suffix.lower() != ".mp4":
+        raise HTTPException(400, "Nombre de video no válido.")
+    path = VIDEOS_DIR / name
+    if not path.is_file():
+        raise HTTPException(404, "Video no encontrado.")
+    return path
+
+
 @router.get("/api/videos")
 def api_videos():
     if not VIDEOS_DIR.is_dir():
-        return {"videos": []}
+        return {"videos": [], "items": [], "total_size": 0}
+    items = video_library.describe_all(VIDEOS_DIR)
     return {
-        "videos": sorted(
-            p.name for p in VIDEOS_DIR.iterdir() if p.suffix.lower() == ".mp4"
-        )
+        "videos": [item["name"] for item in items],
+        "items": items,
+        "total_size": sum(item["size"] for item in items),
     }
+
+
+@router.get("/api/videos/{name}/poster")
+def api_video_poster(name: str):
+    poster = video_library.poster_for(_video_path(name))
+    if poster is None:
+        raise HTTPException(404, "No se pudo generar la portada.")
+    return FileResponse(poster, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
+@router.get("/api/videos/{name}/download")
+def api_video_download(name: str):
+    path = _video_path(name)
+    return FileResponse(path, media_type="video/mp4", filename=path.name)
+
+
+class RenameRequest(BaseModel):
+    nuevo_nombre: str = Field(min_length=1, max_length=180)
+
+
+@router.post("/api/videos/{name}/rename")
+def api_video_rename(name: str, payload: RenameRequest):
+    path = _video_path(name)
+    new_stem = payload.nuevo_nombre.strip()
+    if new_stem.lower().endswith(".mp4"):
+        new_stem = new_stem[:-4].strip()
+    if not new_stem or Path(new_stem).name != new_stem or new_stem.startswith("."):
+        raise HTTPException(400, "El nombre no puede incluir carpetas ni estar vacío.")
+    target = VIDEOS_DIR / f"{new_stem}.mp4"
+    if target == path:
+        return video_library.describe(path)
+    if target.exists():
+        raise HTTPException(409, "Ya existe un video con ese nombre.")
+    path.rename(target)
+    video_library.forget(path)
+    return video_library.describe(target)
+
+
+@router.post("/api/videos/{name}/reveal")
+def api_video_reveal(name: str):
+    path = _video_path(name)
+    if sys.platform != "darwin":
+        raise HTTPException(501, "Mostrar en carpeta solo está disponible en macOS.")
+    subprocess.Popen(["open", "-R", str(path)])
+    return {"status": "ok"}
+
+
+@router.delete("/api/videos/{name}")
+def api_video_delete(name: str):
+    path = _video_path(name)
+    path.unlink()
+    video_library.forget(path)
+    return {"status": "ok"}
 
 
 _SYNC_STANZAS: dict = {}

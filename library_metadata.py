@@ -115,6 +115,17 @@ def clip_info(song: Path) -> tuple[bool, str]:
     return es_recorte, (manual.get("clip_of", "") if es_recorte else "")
 
 
+def display_info(stem: str) -> dict:
+    """Título y artista para mostrar, sin ffprobe: edición local o nombre de archivo."""
+    with _LOCK:
+        manual = _read_overrides().get(stem, {})
+    title, artist = _infer_from_filename(stem)
+    return {
+        "title": _clean(manual.get("title", "")) or title or stem,
+        "artist": _clean(manual.get("artist", "")) or artist,
+    }
+
+
 def get_metadata(song: Path) -> dict:
     """Resuelve ficha en orden: edición local, tags, nombre de archivo."""
     with _LOCK:
