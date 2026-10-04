@@ -62,6 +62,17 @@ const pointer = {
   targetY: 0.5,
 };
 
+// Ondas suaves que se expanden en los golpes fuertes (anillos de luz difusos).
+const MAX_RINGS = 4;
+const rings = [];
+let ringCooldown = 0;
+let previousKick = 0;
+
+function _spawnRing(x, y, power, color) {
+  if (rings.length >= MAX_RINGS) rings.shift();
+  rings.push({ x, y, radius: 0.04, alpha: 0.18 + power * 0.18, color });
+}
+
 // ------------------------------------------------------------
 // MANCHAS DE LUZ
 // Cada una orbita sobre su propia trayectoria (osciladores lentos y
@@ -104,6 +115,7 @@ const visual = {
   energy: 0,
   beatFloor: 0.05,
   pulse: 0,
+  kick: 0,
   seed: _hashString(DEFAULT_SONG_KEY),
   palette: _clonePalette(initialPalette),
   targetPalette: _clonePalette(initialPalette),
@@ -375,6 +387,8 @@ function _stopVisualizer() {
     if (isAudioActive) return;
     visual.bass = visual.lowMid = visual.highMid = visual.air = 0;
     visual.rms = visual.energy = visual.flux = visual.pulse = 0;
+    visual.kick = 0;
+    rings.length = 0;
     blobs.forEach((blob) => { blob.level = 0; });
     _clearCanvas();
   }, FADE_OUT_MS);
@@ -464,6 +478,11 @@ function _readAudio(dt) {
     1
   );
   visual.energy = _smooth(visual.energy, energy, 14, 3.5, dt);
+  // "Kick": envolvente rápida de los transitorios (graves por encima de su línea
+  // base más el cambio espectral). Ataque casi instantáneo y caída corta: da el
+  // pulso de la música sin umbrales ni saltos bruscos.
+  const punch = _clamp((bass - visual.beatFloor) * 5 + flux * 1.2, 0, 1.2);
+  visual.kick = _smooth(visual.kick, punch, 38, 6.5, dt);
   visual.beatFloor = _smooth(visual.beatFloor, visual.bass, 1.5, 0.9, dt);
 }
 
@@ -473,32 +492,35 @@ function _readAudio(dt) {
 function _drawBlobs(width, height, dt, motionScale) {
   const short = Math.min(width, height);
   const energy = visual.energy;
-  const intensity = _clamp(0.30 + energy * 0.75, 0.30, 1);
-  const swell = visual.pulse;
+  const kick = visual.kick;
+  const intensity = _clamp(0.30 + energy * 0.70 + kick * 0.15, 0.30, 1);
+  const reach = 1.35 + energy * 0.65;       // las órbitas se abren con la música
+  const t = visual.fluidTime * motionScale;
 
   ctx.globalCompositeOperation = "screen";
 
   blobs.forEach((blob) => {
-    // Nivel por banda con ataque medio y liberación lenta: respira, no salta.
-    const target = _clamp(spectrumBands[blob.band] * 0.85 + visual.bass * blob.bass * 0.55, 0, 1);
-    blob.level = _smooth(blob.level, target, 4.5, 1.5, dt);
-    blob.rotation += blob.spin * dt * (0.6 + energy) * motionScale;
+    // Nivel por banda: sube rápido y baja con soltura (vibra con el espectro).
+    const target = _clamp(spectrumBands[blob.band] * 1.15 + visual.bass * blob.bass * 0.8, 0, 1.3);
+    blob.level = _smooth(blob.level, target, 16, 3.8, dt);
+    blob.rotation += blob.spin * dt * (0.8 + energy * 1.6 + kick) * motionScale;
 
-    const t = visual.fluidTime * motionScale;
-    const x = (blob.x + blob.ax * Math.sin(t * blob.fx * 6.28 + blob.px)
-      + (pointer.x - 0.5) * 0.05 * motionScale) * width;
-    const y = (blob.y + blob.ay * Math.cos(t * blob.fy * 6.28 + blob.py)
-      + (pointer.y - 0.5) * 0.04 * motionScale) * height;
-    const radius = short * blob.size * (0.90 + blob.level * 0.50 + swell * 0.10);
-    const alpha = _clamp(blob.alpha * (0.50 + intensity * 0.85) * (0.85 + blob.level * 0.45), 0.02, 0.75);
+    // Temblor fino proporcional al nivel: la mancha "vibra" con su banda.
+    const shakeX = Math.sin(t * 38 + blob.px * 5) * blob.level * 0.016 * motionScale;
+    const shakeY = Math.cos(t * 33 + blob.py * 5) * blob.level * 0.020 * motionScale;
+    const x = (blob.x + blob.ax * reach * Math.sin(t * blob.fx * 6.28 + blob.px) + shakeX
+      + (pointer.x - 0.5) * 0.06 * motionScale) * width;
+    const y = (blob.y + blob.ay * reach * Math.cos(t * blob.fy * 6.28 + blob.py) + shakeY
+      + (pointer.y - 0.5) * 0.05 * motionScale) * height;
+    const radius = short * blob.size * (0.86 + blob.level * 0.55 + kick * 0.16 * blob.bass);
+    const alpha = _clamp(
+      blob.alpha * (0.42 + intensity * 0.72) * (0.78 + blob.level * 0.50 + kick * 0.20), 0.02, 0.80);
     const color = _getColorByIndex(blob.color);
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(blob.rotation);
     ctx.scale(1, blob.stretch);
-
-    // Caída suave en varios tramos (aproxima una gaussiana, sin bordes duros).
     const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, radius);
     gradient.addColorStop(0.00, _rgba(color, alpha));
     gradient.addColorStop(0.25, _rgba(color, alpha * 0.72));
@@ -511,6 +533,33 @@ function _drawBlobs(width, height, dt, motionScale) {
     ctx.fill();
     ctx.restore();
   });
+
+  _drawRings(width, height, dt, short);
+}
+
+function _drawRings(width, height, dt, short) {
+  if (!rings.length) return;
+  ctx.globalCompositeOperation = "screen";
+  const band = short * 0.10;
+  for (let i = rings.length - 1; i >= 0; i--) {
+    const ring = rings[i];
+    ring.radius += short * 1.05 * dt;
+    ring.alpha *= Math.exp(-2.3 * dt);
+    if (ring.alpha < 0.012 || ring.radius > Math.max(width, height)) {
+      rings.splice(i, 1);
+      continue;
+    }
+    // Anillo difuso: transparente → color → transparente (sin borde duro).
+    const gradient = ctx.createRadialGradient(
+      ring.x, ring.y, Math.max(0, ring.radius - band), ring.x, ring.y, ring.radius + band);
+    gradient.addColorStop(0.00, _rgba(ring.color, 0));
+    gradient.addColorStop(0.50, _rgba(ring.color, ring.alpha));
+    gradient.addColorStop(1.00, _rgba(ring.color, 0));
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(ring.x, ring.y, ring.radius + band, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 // ------------------------------------------------------------
@@ -518,10 +567,10 @@ function _drawBlobs(width, height, dt, motionScale) {
 // ------------------------------------------------------------
 function _updateCss(time, motionScale) {
   const energy = visual.energy;
-  const driftX = Math.sin(time * 0.20) * (14 + energy * 26) * motionScale + (pointer.x - 0.5) * 40;
-  const driftY = Math.cos(time * 0.16) * (12 + energy * 20) * motionScale + (pointer.y - 0.5) * 32;
-  const intensity = _clamp(0.28 + energy * 0.62 + visual.flux * 0.14, 0.20, 0.95);
-  const beatScale = _clamp(visual.pulse * 0.032, 0, 0.05);
+  const driftX = Math.sin(time * 0.20) * (16 + energy * 38 + visual.kick * 14) * motionScale + (pointer.x - 0.5) * 40;
+  const driftY = Math.cos(time * 0.16) * (14 + energy * 30 + visual.kick * 10) * motionScale + (pointer.y - 0.5) * 32;
+  const intensity = _clamp(0.28 + energy * 0.62 + visual.flux * 0.14 + visual.kick * 0.22, 0.20, 1);
+  const beatScale = _clamp(visual.kick * 0.05, 0, 0.08);
   const rotation = Math.sin(time * 0.08) * 3 + (pointer.x - 0.5) * 4;
 
   const targets = [ambientOverlay, ambientArtwork, nowPlaying].filter(Boolean);
@@ -558,11 +607,19 @@ function drawVisualizer(frameAt = performance.now()) {
   _readAudio(dt);
   _lerpPalette(dt);
 
-  // El tiempo del fluido avanza más rápido con la energía, pero siempre de
-  // forma continua (la energía ya está suavizada), así que nunca hay saltos.
-  visual.fluidTime += dt * (0.75 + visual.energy * 0.9);
-  // "Swell": crecida lenta de los graves sobre su línea base, sin umbrales.
-  visual.pulse = _smooth(visual.pulse, _clamp((visual.bass - visual.beatFloor) * 3.2, 0, 1), 6, 2.2, dt);
+  // El tiempo del fluido avanza más rápido con la energía y con cada golpe;
+  // ambas señales están suavizadas, así que la aceleración es continua.
+  visual.fluidTime += dt * (0.90 + visual.energy * 1.70 + visual.kick * 1.40);
+  visual.pulse = visual.kick;
+
+  // Onda suave en los golpes fuertes (flanco de subida + enfriamiento corto).
+  ringCooldown = Math.max(0, ringCooldown - dt);
+  if (!reduceMotionQuery.matches && ringCooldown === 0 && visual.kick > 0.55 && visual.kick > previousKick) {
+    const lead = blobs[2 + Math.floor(Math.random() * Math.max(1, blobs.length - 3))] || blobs[0];
+    _spawnRing(lead.x * bgCanvas.width, lead.y * bgCanvas.height, _clamp(visual.kick, 0, 1), visual.palette.accent);
+    ringCooldown = 0.20;
+  }
+  previousKick = visual.kick;
 
   pointer.x += (pointer.targetX - pointer.x) * (1 - Math.exp(-3 * dt));
   pointer.y += (pointer.targetY - pointer.y) * (1 - Math.exp(-3 * dt));
