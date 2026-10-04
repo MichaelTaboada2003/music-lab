@@ -796,14 +796,18 @@
     </main>
 
     <div class="mini-player" id="miniPlayer" hidden>
-      <div class="mini-artwork">
-        <span id="miniArtworkFallback">ML</span>
-        <img id="miniArtworkImage" alt="Carátula de la canción actual" hidden />
+      <div class="mini-open" id="miniOpen" role="button" tabindex="0" title="Ir al reproductor" aria-label="Ir al reproductor">
+        <div class="mini-artwork">
+          <span id="miniArtworkFallback">ML</span>
+          <img id="miniArtworkImage" alt="Carátula de la canción actual" hidden />
+        </div>
+        <div class="mini-copy">
+          <span id="miniSongTitle">Sin canción</span>
+          <span id="miniArtistName">Music Lab</span>
+        </div>
       </div>
-      <div class="mini-copy">
-        <span id="miniSongTitle">Sin canción</span>
-        <span id="miniArtistName">Music Lab</span>
       <button class="mini-play" id="miniPlayBtn" type="button" title="Reproducir o pausar"></button>
+      <div class="mini-progress" aria-hidden="true"><i></i></div>
     </div>
 
     <!-- Dialog para cambiar/buscar carátula -->

@@ -31,6 +31,16 @@ const npTrackStatus = document.getElementById("npTrackStatus");
 const libraryCount = document.getElementById("libraryCount");
 const lyricsMode = document.getElementById("lyricsMode");
 const miniPlayer = document.getElementById("miniPlayer");
+
+// En la vista Reproductor el mini-reproductor solo hace falta cuando los
+// controles principales quedan fuera de pantalla (p. ej. al bajar por la
+// biblioteca). Esta clase la activa un observador sobre el botón de play.
+const mainPlayButton = document.getElementById("playBtn");
+if (mainPlayButton && "IntersectionObserver" in window) {
+  new IntersectionObserver(([entry]) => {
+    document.body.classList.toggle("player-controls-hidden", !entry.isIntersecting);
+  }).observe(mainPlayButton);
+}
 const miniArtworkImage = document.getElementById("miniArtworkImage");
 const miniArtworkFallback = document.getElementById("miniArtworkFallback");
 const miniSongTitle = document.getElementById("miniSongTitle");
@@ -793,6 +803,17 @@ playBtn.addEventListener("click", () => {
 });
 
 miniPlayBtn?.addEventListener("click", () => playBtn.click());
+
+// Pulsar la portada o el título del mini-reproductor vuelve a la vista Reproductor.
+const miniOpen = document.getElementById("miniOpen");
+const _goToPlayer = () => document.querySelector('.nav-item[data-view="player"]')?.click();
+miniOpen?.addEventListener("click", _goToPlayer);
+miniOpen?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    _goToPlayer();
+  }
+});
 karaokeModeBtn?.addEventListener("click", _toggleKaraokeMode);
 
 audioPlayer.addEventListener("play", _updatePlaybackChrome);
@@ -825,6 +846,7 @@ audioPlayer.addEventListener("timeupdate", () => {
   const progressPercent =
     (audioPlayer.currentTime / audioPlayer.duration) * 100 || 0;
   progressBar.style.width = `${progressPercent}%`;
+  miniPlayer?.style.setProperty("--mini-progress", `${progressPercent.toFixed(2)}%`);
 });
 
 audioPlayer.addEventListener("ended", () => {
