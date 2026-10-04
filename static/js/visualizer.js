@@ -1,6 +1,11 @@
 // ============================================================
-// visualizer.js — Motor de Simulación Acústica Fluida & Orgánica (Web Audio API)
-// Ondas de Presión Sonora • Cintas Armónicas • Nódulos Cimáticos • 60 FPS • 0% CPU en Pausa
+// visualizer.js — fondo ambiental reactivo al audio
+//
+// Manchas de luz con la paleta de la portada que derivan despacio y "respiran"
+// con el espectro. Todo el movimiento nace de osciladores continuos y de
+// filtros suaves (ataque/liberación lentos): no hay umbrales ni golpes, así que
+// nunca da saltos. El canvas se dibuja a baja resolución y el navegador lo
+// escala con suavizado: degradados limpios, CPU casi nula y 0% en pausa.
 // ============================================================
 
 import { audioPlayer } from "./player.js";
@@ -20,11 +25,12 @@ const deviceMemory = Number(navigator.deviceMemory) || 8;
 const cpuCores = Number(navigator.hardwareConcurrency) || 8;
 const LOW_POWER_MODE = reduceMotionQuery.matches || deviceMemory <= 4 || cpuCores <= 4;
 
-const NORMAL_FPS = reduceMotionQuery.matches ? 30 : LOW_POWER_MODE ? 45 : 60;
-const DEGRADED_FPS = 30;
+const FRAME_INTERVAL = 1000 / (reduceMotionQuery.matches ? 24 : LOW_POWER_MODE ? 30 : 60);
 const CSS_UPDATE_INTERVAL = LOW_POWER_MODE ? 60 : 33;
-const BASE_PIXEL_BUDGET = LOW_POWER_MODE ? 800_000 : 1_800_000;
-const MOBILE_PIXEL_BUDGET = LOW_POWER_MODE ? 450_000 : 950_000;
+// El canvas interno mide el viewport dividido entre este factor y se escala.
+const RESOLUTION_DIVISOR = LOW_POWER_MODE ? 6 : 4;
+// Tras pausar, el CSS desvanece el canvas; se limpia cuando termina el fundido.
+const FADE_OUT_MS = 800;
 
 // Estado del Web Audio API
 let audioCtx = null;
@@ -38,98 +44,50 @@ let previousSpectrum = null;
 const spectrumBands = new Float32Array(16);
 const targetBands = new Float32Array(16);
 
-// Estado de animación y profiling
+// Estado de animación
 let frameRequest = null;
 let lastRenderAt = 0;
 let lastCssUpdateAt = 0;
 let resizeRequest = null;
-let beatCooldown = 0;
+let fadeOutTimer = null;
 let activeArtworkIndex = 0;
 let currentArtworkUrl = "";
-let frameInterval = 1000 / NORMAL_FPS;
-let averageRenderCost = 0;
-let quality = 1;
-let qualityCheckAt = 0;
 let isAudioActive = false;
 
-// Estado del puntero para interacción acústica fluida
+// Estado del puntero para un paralaje sutil
 const pointer = {
   x: 0.5,
   y: 0.5,
   targetX: 0.5,
   targetY: 0.5,
-  vx: 0,
-  vy: 0,
 };
 
 // ------------------------------------------------------------
-// SISTEMA DE SIMULACIÓN ACÚSTICA: MEMBRANAS Y ONDAS FLUIDAS
+// MANCHAS DE LUZ
+// Cada una orbita sobre su propia trayectoria (osciladores lentos y
+// desfasados) y reacciona a una banda del espectro con un filtro suave.
 // ------------------------------------------------------------
-
-// Cintas de Ondas de Presión Sonora
-const NUM_WAVE_RIBBONS = LOW_POWER_MODE ? 4 : 6;
-const waveRibbons = [];
-
-function _initWaveRibbons() {
-  waveRibbons.length = 0;
-  for (let i = 0; i < NUM_WAVE_RIBBONS; i++) {
-    waveRibbons.push({
-      baseY: 0.22 + (i / Math.max(1, NUM_WAVE_RIBBONS - 1)) * 0.58,
-      thickness: 0.16 + (i % 2) * 0.08,
-      phase: i * 1.35,
-      phase2: i * 2.1 + 0.8,
-      baseSpeed: 0.45 + (i * 0.12),
-      reactivity: 0.85 + (i % 3) * 0.35,
-      harmonics: 2 + (i % 3),
-      freqBandStart: Math.min(14, i * 2),
-      colorIndex: i % 4, // 0: primary, 1: secondary, 2: tertiary, 3: accent
-      flowDirection: i % 2 === 0 ? 1 : -1,
-      roughness: 0.08 + (i % 3) * 0.04,
-    });
-  }
-}
-
-// Nódulos de Resonancia Cimática (Vórtices de Presión Sonora)
-const NUM_CYMATIC_NODES = LOW_POWER_MODE ? 3 : 5;
-const cymaticNodes = [];
-
-function _initCymaticNodes() {
-  cymaticNodes.length = 0;
-  for (let i = 0; i < NUM_CYMATIC_NODES; i++) {
-    cymaticNodes.push({
-      baseX: 0.20 + (i / Math.max(1, NUM_CYMATIC_NODES - 1)) * 0.60,
-      baseY: 0.30 + (i % 2 === 0 ? 0.15 : 0.48),
-      currentX: 0.5,
-      currentY: 0.5,
-      phaseX: i * 1.618,
-      phaseY: i * 2.414 + 1.2,
-      orbitSpeed: 0.32 + i * 0.10,
-      radiusScale: 0.32 + (i % 3) * 0.14,
-      freqIndex: Math.min(15, i * 3 + 1),
-      colorIndex: (i + 1) % 4,
-      petals: 3 + (i % 4), // Simetría armónica cimática
-    });
-  }
-}
-
-// Ondas de Choque Acústicas Expansivas (Shockwaves / Solitones)
-const MAX_RIPPLES = 8;
-const acousticRipples = [];
-
-function _spawnAcousticRipple(x, y, power, color) {
-  if (acousticRipples.length >= MAX_RIPPLES) acousticRipples.shift();
-  acousticRipples.push({
-    x,
-    y,
-    radius: 10,
-    maxRadius: Math.max(window.innerWidth, window.innerHeight) * (0.55 + power * 0.45),
-    speed: 380 + power * 420,
-    alpha: 0.65 + power * 0.35,
-    power,
-    color,
-    phaseOffset: Math.random() * Math.PI * 2,
-  });
-}
+const BLOB_SPECS = [
+  // Atmósfera: grandes, tenues y casi inmóviles; dan cuerpo y color al fondo.
+  { color: 0, x: 0.12, y: 0.16, ax: 0.10, ay: 0.08, fx: 0.07, fy: 0.05, size: 0.95, stretch: 0.78, alpha: 0.34, band: 1, bass: 0.9 },
+  { color: 1, x: 0.90, y: 0.86, ax: 0.09, ay: 0.09, fx: 0.06, fy: 0.08, size: 1.00, stretch: 0.72, alpha: 0.32, band: 3, bass: 0.7 },
+  // Cuerpo: tamaño medio, recorren la pantalla y marcan el ritmo.
+  { color: 2, x: 0.62, y: 0.30, ax: 0.20, ay: 0.16, fx: 0.13, fy: 0.10, size: 0.62, stretch: 0.55, alpha: 0.42, band: 5, bass: 1.0 },
+  { color: 0, x: 0.30, y: 0.72, ax: 0.22, ay: 0.14, fx: 0.11, fy: 0.15, size: 0.58, stretch: 0.50, alpha: 0.40, band: 2, bass: 1.1 },
+  { color: 1, x: 0.50, y: 0.50, ax: 0.26, ay: 0.20, fx: 0.09, fy: 0.12, size: 0.50, stretch: 0.62, alpha: 0.36, band: 7, bass: 0.6 },
+  // Destellos: pequeños y vivos; siguen los agudos.
+  { color: 3, x: 0.72, y: 0.62, ax: 0.18, ay: 0.20, fx: 0.19, fy: 0.16, size: 0.30, stretch: 0.85, alpha: 0.38, band: 11, bass: 0.2 },
+  { color: 3, x: 0.20, y: 0.40, ax: 0.16, ay: 0.18, fx: 0.17, fy: 0.21, size: 0.26, stretch: 0.80, alpha: 0.34, band: 13, bass: 0.2 },
+];
+const BLOB_COUNT = LOW_POWER_MODE ? 5 : BLOB_SPECS.length;
+const blobs = BLOB_SPECS.slice(0, BLOB_COUNT).map((spec, index) => ({
+  ...spec,
+  level: 0,
+  px: index * 1.618 + 0.4,
+  py: index * 2.414 + 1.1,
+  rotation: index * 0.9,
+  spin: (index % 2 === 0 ? 1 : -1) * (0.035 + index * 0.012),
+}));
 
 // ------------------------------------------------------------
 // PALETA Y ESTADO VISUAL
@@ -151,9 +109,6 @@ const visual = {
   targetPalette: _clonePalette(initialPalette),
   fluidTime: 0,
 };
-
-_initWaveRibbons();
-_initCymaticNodes();
 
 // ------------------------------------------------------------
 // UTILIDADES MATEMÁTICAS Y DE COLOR
@@ -315,7 +270,7 @@ function _setArtwork(url) {
 }
 
 function _lerpPalette(dt) {
-  const amount = 1 - Math.exp(-2.8 * dt);
+  const amount = 1 - Math.exp(-1.6 * dt);
   for (const key of Object.keys(visual.palette)) {
     visual.palette[key] = _mixColor(visual.palette[key], visual.targetPalette[key], amount);
   }
@@ -335,17 +290,12 @@ function _getColorByIndex(index) {
 // ------------------------------------------------------------
 function resizeCanvas() {
   if (!ctx || !bgCanvas) return;
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  const pixelBudget = (width <= 768 ? MOBILE_PIXEL_BUDGET : BASE_PIXEL_BUDGET) * quality;
-  const budgetScale = Math.sqrt(pixelBudget / Math.max(1, width * height));
-  const renderScale = Math.min(window.devicePixelRatio || 1, LOW_POWER_MODE ? 0.85 : 1, budgetScale);
-
-  bgCanvas.width = Math.max(1, Math.round(width * renderScale));
-  bgCanvas.height = Math.max(1, Math.round(height * renderScale));
-  bgCanvas.style.width = `${width}px`;
-  bgCanvas.style.height = `${height}px`;
-  ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
+  // Resolución baja a propósito: el escalado suaviza los degradados.
+  bgCanvas.width = Math.max(2, Math.ceil(window.innerWidth / RESOLUTION_DIVISOR));
+  bgCanvas.height = Math.max(2, Math.ceil(window.innerHeight / RESOLUTION_DIVISOR));
+  bgCanvas.style.width = "100%";
+  bgCanvas.style.height = "100%";
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
 function scheduleCanvasResize() {
@@ -353,6 +303,7 @@ function scheduleCanvasResize() {
   resizeRequest = requestAnimationFrame(() => {
     resizeRequest = null;
     resizeCanvas();
+    if (!isAudioActive) _clearCanvas();
   });
 }
 
@@ -404,6 +355,7 @@ function setTrackGain(gainDb) {
 
 function _startVisualizer() {
   if (!ctx) return;
+  clearTimeout(fadeOutTimer);
   isAudioActive = true;
   document.body.classList.add("ambient-playing");
   lastRenderAt = 0;
@@ -416,16 +368,16 @@ function _stopVisualizer() {
   if (frameRequest) cancelAnimationFrame(frameRequest);
   frameRequest = null;
 
-  visual.bass = 0;
-  visual.lowMid = 0;
-  visual.highMid = 0;
-  visual.air = 0;
-  visual.rms = 0;
-  visual.energy = 0;
-  visual.pulse = 0;
-  acousticRipples.length = 0;
-
-  _clearCanvas();
+  // El último cuadro se queda mientras el CSS desvanece el canvas; después se
+  // limpia para no gastar memoria ni dejar restos al volver a reproducir.
+  clearTimeout(fadeOutTimer);
+  fadeOutTimer = setTimeout(() => {
+    if (isAudioActive) return;
+    visual.bass = visual.lowMid = visual.highMid = visual.air = 0;
+    visual.rms = visual.energy = visual.flux = visual.pulse = 0;
+    blobs.forEach((blob) => { blob.level = 0; });
+    _clearCanvas();
+  }, FADE_OUT_MS);
 }
 
 // ------------------------------------------------------------
@@ -516,260 +468,55 @@ function _readAudio(dt) {
 }
 
 // ------------------------------------------------------------
-// CAPA 1: MAR DE FONDO FLUIDO Y RESONANTE
+// DIBUJO DE LAS MANCHAS DE LUZ
 // ------------------------------------------------------------
-function _drawAtmosphericFluidBase(width, height, time) {
-  const grad = ctx.createLinearGradient(0, 0, width, height);
-  const waveShift = Math.sin(time * 0.25) * 0.08;
-  
-  grad.addColorStop(0, _rgba(visual.palette.shadow, 0.85));
-  grad.addColorStop(0.45 + waveShift, _rgba([7, 9, 14], 0.90));
-  grad.addColorStop(1, _rgba(visual.palette.shadow, 0.88));
-
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, width, height);
-}
-
-// ------------------------------------------------------------
-// CAPA 2: CINTAS DE ONDAS ACÚSTICAS FLUIDAS (Harmonic Wave Ribbons)
-// ------------------------------------------------------------
-function _drawHarmonicWaveRibbons(width, height, time, dt, motionScale) {
-  const steps = LOW_POWER_MODE ? 40 : 64;
-  const dx = width / steps;
+function _drawBlobs(width, height, dt, motionScale) {
+  const short = Math.min(width, height);
   const energy = visual.energy;
-  const bass = visual.bass;
-  const pulse = visual.pulse;
+  const intensity = _clamp(0.30 + energy * 0.75, 0.30, 1);
+  const swell = visual.pulse;
 
   ctx.globalCompositeOperation = "screen";
 
-  waveRibbons.forEach((ribbon, idx) => {
-    // Acumulación continua de fase fluida (física de ondas sin saltos)
-    ribbon.phase += dt * (ribbon.baseSpeed + energy * ribbon.reactivity * 1.4) * ribbon.flowDirection * motionScale;
-    ribbon.phase2 += dt * (ribbon.baseSpeed * 0.65 + bass * 0.8) * motionScale;
+  blobs.forEach((blob) => {
+    // Nivel por banda con ataque medio y liberación lenta: respira, no salta.
+    const target = _clamp(spectrumBands[blob.band] * 0.85 + visual.bass * blob.bass * 0.55, 0, 1);
+    blob.level = _smooth(blob.level, target, 4.5, 1.5, dt);
+    blob.rotation += blob.spin * dt * (0.6 + energy) * motionScale;
 
-    const bandVal = spectrumBands[ribbon.freqBandStart] || energy;
-    const color = _getColorByIndex(ribbon.colorIndex);
-    const alphaBase = 0.12 + (idx < 2 ? bass * 0.22 : visual.lowMid * 0.18) + pulse * 0.10;
-    const alpha = _clamp(alphaBase * (0.45 + energy * 0.85), 0.04, 0.55);
+    const t = visual.fluidTime * motionScale;
+    const x = (blob.x + blob.ax * Math.sin(t * blob.fx * 6.28 + blob.px)
+      + (pointer.x - 0.5) * 0.05 * motionScale) * width;
+    const y = (blob.y + blob.ay * Math.cos(t * blob.fy * 6.28 + blob.py)
+      + (pointer.y - 0.5) * 0.04 * motionScale) * height;
+    const radius = short * blob.size * (0.90 + blob.level * 0.50 + swell * 0.10);
+    const alpha = _clamp(blob.alpha * (0.50 + intensity * 0.85) * (0.85 + blob.level * 0.45), 0.02, 0.75);
+    const color = _getColorByIndex(blob.color);
 
-    const centerY = height * ribbon.baseY + (pointer.y - 0.5) * height * 0.08 * motionScale;
-    const amp1 = height * (0.04 + (idx < 2 ? bass * 0.14 : visual.highMid * 0.10) + pulse * 0.05);
-    const amp2 = height * (0.02 + bandVal * 0.08);
-    const thickness = height * ribbon.thickness * (0.85 + energy * 0.65 + pulse * 0.35);
-
-    // Trazar curva superior
-    ctx.beginPath();
-    let prevX = 0;
-    let prevY = centerY;
-
-    for (let s = 0; s <= steps; s++) {
-      const x = s * dx;
-      const nx = x / width;
-      
-      // Armónicos compuestos de Fourier modulados por sonido
-      const w1 = Math.sin(nx * Math.PI * ribbon.harmonics + ribbon.phase);
-      const w2 = Math.cos(nx * Math.PI * (ribbon.harmonics * 1.6) + ribbon.phase2 + (pointer.x - 0.5) * 2);
-      const w3 = Math.sin(nx * Math.PI * 4.2 - time * 0.8) * ribbon.roughness;
-      
-      const waveOffset = (w1 * 0.65 + w2 * 0.35 + w3) * (amp1 + amp2);
-      const y = centerY + waveOffset;
-
-      if (s === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        const cx = (prevX + x) / 2;
-        const cy = (prevY + y) / 2;
-        ctx.quadraticCurveTo(prevX, prevY, cx, cy);
-      }
-      prevX = x;
-      prevY = y;
-    }
-    ctx.lineTo(width, prevY);
-
-    // Trazar curva inferior para cerrar el volumen fluido de la cinta
-    for (let s = steps; s >= 0; s--) {
-      const x = s * dx;
-      const nx = x / width;
-      
-      const w1 = Math.sin(nx * Math.PI * ribbon.harmonics + ribbon.phase + 0.4);
-      const w2 = Math.cos(nx * Math.PI * (ribbon.harmonics * 1.6) + ribbon.phase2 - 0.3);
-      const waveOffset = (w1 * 0.60 + w2 * 0.40) * (amp1 + amp2 * 0.8);
-      const y = centerY + waveOffset + thickness;
-
-      if (s === steps) {
-        ctx.lineTo(x, y);
-      } else {
-        const cx = (prevX + x) / 2;
-        const cy = (prevY + y) / 2;
-        ctx.quadraticCurveTo(prevX, prevY, cx, cy);
-      }
-      prevX = x;
-      prevY = y;
-    }
-    ctx.closePath();
-
-    // Gradiente lumínico vertical del fluido
-    const grad = ctx.createLinearGradient(0, centerY - amp1, 0, centerY + thickness + amp1);
-    grad.addColorStop(0, _rgba(color, 0));
-    grad.addColorStop(0.35, _rgba(color, alpha));
-    grad.addColorStop(0.70, _rgba(_mixColor(color, visual.palette.accent, 0.4), alpha * 0.7));
-    grad.addColorStop(1, _rgba(color, 0));
-
-    ctx.fillStyle = grad;
-    ctx.fill();
-  });
-}
-
-// ------------------------------------------------------------
-// CAPA 3: NÓDULOS DE RESONANCIA CIMÁTICA (Cymatic Pressure Vortices)
-// ------------------------------------------------------------
-function _drawCymaticPressureNodes(width, height, short, time, dt, motionScale) {
-  ctx.globalCompositeOperation = "screen";
-  const energy = visual.energy;
-  const bass = visual.bass;
-
-  cymaticNodes.forEach((node, idx) => {
-    // Órbita fluida con inercia elíptica
-    const orbitT = time * node.orbitSpeed * (0.7 + energy * 0.6) * motionScale;
-    const wanderX = Math.sin(orbitT + node.phaseX) * width * 0.16;
-    const wanderY = Math.cos(orbitT * 0.85 + node.phaseY) * height * 0.14;
-
-    node.currentX = width * node.baseX + wanderX + (pointer.x - 0.5) * 60;
-    node.currentY = height * node.baseY + wanderY + (pointer.y - 0.5) * 50;
-
-    const bandEnergy = spectrumBands[node.freqIndex] || energy;
-    const baseRadius = short * node.radiusScale * (0.85 + bandEnergy * 0.75 + visual.pulse * 0.45);
-    const color = _getColorByIndex(node.colorIndex);
-    const nodeAlpha = _clamp((0.14 + bandEnergy * 0.26 + visual.pulse * 0.12) * (0.5 + energy * 0.8), 0.03, 0.52);
-
-    // Dibujar patrón de interferencia acústica con forma de flor cimática
     ctx.save();
-    ctx.translate(node.currentX, node.currentY);
-    ctx.rotate(time * 0.18 * (idx % 2 === 0 ? 1 : -1) + node.phaseX);
+    ctx.translate(x, y);
+    ctx.rotate(blob.rotation);
+    ctx.scale(1, blob.stretch);
 
-    const petals = node.petals;
-    const points = LOW_POWER_MODE ? 32 : 48;
+    // Caída suave en varios tramos (aproxima una gaussiana, sin bordes duros).
+    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, radius);
+    gradient.addColorStop(0.00, _rgba(color, alpha));
+    gradient.addColorStop(0.25, _rgba(color, alpha * 0.72));
+    gradient.addColorStop(0.50, _rgba(color, alpha * 0.34));
+    gradient.addColorStop(0.75, _rgba(color, alpha * 0.10));
+    gradient.addColorStop(1.00, _rgba(color, 0));
+    ctx.fillStyle = gradient;
     ctx.beginPath();
-
-    for (let p = 0; p <= points; p++) {
-      const angle = (p / points) * Math.PI * 2;
-      const mod = 1 + Math.sin(angle * petals + time * 1.5) * (0.12 + bass * 0.18);
-      const r = baseRadius * mod;
-      const px = Math.cos(angle) * r;
-      const py = Math.sin(angle) * r;
-
-      if (p === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-
-    const radGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, baseRadius * 1.2);
-    radGrad.addColorStop(0, _rgba(color, nodeAlpha));
-    radGrad.addColorStop(0.40, _rgba(color, nodeAlpha * 0.55));
-    radGrad.addColorStop(0.80, _rgba(color, nodeAlpha * 0.12));
-    radGrad.addColorStop(1, _rgba(color, 0));
-
-    ctx.fillStyle = radGrad;
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   });
-}
-
-// ------------------------------------------------------------
-// CAPA 4: ONDAS DE CHOQUE ACÚSTICAS EN TRANSITORIOS (Acoustic Ripples)
-// ------------------------------------------------------------
-function _updateAndDrawAcousticRipples(width, height, dt) {
-  if (!acousticRipples.length) return;
-  ctx.globalCompositeOperation = "screen";
-
-  for (let i = acousticRipples.length - 1; i >= 0; i--) {
-    const ripple = acousticRipples[i];
-    ripple.radius += ripple.speed * dt;
-    ripple.alpha *= Math.exp(-2.2 * dt);
-
-    if (ripple.radius >= ripple.maxRadius || ripple.alpha < 0.01) {
-      acousticRipples.splice(i, 1);
-      continue;
-    }
-
-    const grad = ctx.createRadialGradient(
-      ripple.x,
-      ripple.y,
-      Math.max(0, ripple.radius - 60),
-      ripple.x,
-      ripple.y,
-      ripple.radius
-    );
-    
-    grad.addColorStop(0, _rgba(ripple.color, 0));
-    grad.addColorStop(0.65, _rgba(ripple.color, ripple.alpha * 0.45));
-    grad.addColorStop(0.85, _rgba([255, 255, 255], ripple.alpha * 0.65));
-    grad.addColorStop(1, _rgba(ripple.color, 0));
-
-    ctx.save();
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-}
-
-// ------------------------------------------------------------
-// CAPA 5: FILAMENTOS DE LUZ Y AGUDOS ARMÓNICOS (Caustics)
-// ------------------------------------------------------------
-function _drawHarmonicCaustics(width, height, short, time, motionScale) {
-  if (visual.air < 0.14 && visual.highMid < 0.16) return;
-  ctx.globalCompositeOperation = "screen";
-
-  const airPower = Math.max(visual.air, visual.highMid);
-  const fx = width * 0.5 + (pointer.x - 0.5) * width * 0.2 * motionScale;
-  const fy = height * 0.42 + (pointer.y - 0.5) * height * 0.15 * motionScale;
-  const radius = short * (0.38 + airPower * 0.42);
-  const color = _mixColor(visual.palette.accent, [255, 255, 255], 0.40);
-  const alpha = _clamp(airPower * 0.24, 0.02, 0.30);
-
-  const grad = ctx.createRadialGradient(fx, fy, 0, fx, fy, radius);
-  grad.addColorStop(0, _rgba(color, alpha));
-  grad.addColorStop(0.45, _rgba(visual.palette.tertiary, alpha * 0.40));
-  grad.addColorStop(1, _rgba(visual.palette.tertiary, 0));
-
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(fx, fy, radius, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-// ------------------------------------------------------------
-// CAPA 6: VIÑETA CINEMÁTICA Y CONTRASTE DE INTERFAZ
-// ------------------------------------------------------------
-function _drawCinematicVignette(width, height) {
-  const maxDim = Math.max(width, height);
-  const grad = ctx.createRadialGradient(
-    width * 0.5,
-    height * 0.5,
-    height * 0.18,
-    width * 0.5,
-    height * 0.5,
-    maxDim * 0.70
-  );
-  grad.addColorStop(0, "rgba(7, 9, 14, 0.02)");
-  grad.addColorStop(0.50, "rgba(7, 9, 14, 0.32)");
-  grad.addColorStop(1, "rgba(7, 9, 14, 0.84)");
-
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, width, height);
 }
 
 // ------------------------------------------------------------
 // ACTUALIZACIÓN DE VARIABLES CSS & PARALAJE
 // ------------------------------------------------------------
 function _updateCss(time, motionScale) {
-  pointer.x += (pointer.targetX - pointer.x) * 0.08;
-  pointer.y += (pointer.targetY - pointer.y) * 0.08;
-
   const energy = visual.energy;
   const driftX = Math.sin(time * 0.20) * (14 + energy * 26) * motionScale + (pointer.x - 0.5) * 40;
   const driftY = Math.cos(time * 0.16) * (12 + energy * 20) * motionScale + (pointer.y - 0.5) * 32;
@@ -792,25 +539,6 @@ function _updateCss(time, motionScale) {
 }
 
 // ------------------------------------------------------------
-// PROFILER ADAPTATIVO (60 FPS FIJOS)
-// ------------------------------------------------------------
-function _adaptQuality(renderCost, now) {
-  averageRenderCost = averageRenderCost ? averageRenderCost * 0.94 + renderCost * 0.06 : renderCost;
-  if (now - qualityCheckAt < 2000 || LOW_POWER_MODE || reduceMotionQuery.matches) return;
-  qualityCheckAt = now;
-
-  if (averageRenderCost > 13.5 && quality > 0.70) {
-    quality = 0.70;
-    frameInterval = 1000 / DEGRADED_FPS;
-    scheduleCanvasResize();
-  } else if (averageRenderCost < 6.0 && quality < 1) {
-    quality = 1;
-    frameInterval = 1000 / NORMAL_FPS;
-    scheduleCanvasResize();
-  }
-}
-
-// ------------------------------------------------------------
 // BUCLE PRINCIPAL DE RENDERIZADO
 // ------------------------------------------------------------
 function drawVisualizer(frameAt = performance.now()) {
@@ -821,58 +549,33 @@ function drawVisualizer(frameAt = performance.now()) {
 
   frameRequest = requestAnimationFrame(drawVisualizer);
   const elapsed = frameAt - lastRenderAt;
-  if (elapsed < frameInterval) return;
-  lastRenderAt = frameAt - (elapsed % frameInterval);
+  if (elapsed < FRAME_INTERVAL - 1) return;
+  lastRenderAt = frameAt;
 
-  const renderStartedAt = performance.now();
   const dt = Math.min(elapsed / 1000, 0.10);
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  const short = Math.min(width, height);
-  const time = frameAt / 1000;
   const motionScale = reduceMotionQuery.matches ? 0.15 : 1;
 
-  visual.fluidTime += dt * (0.8 + visual.energy * 0.8);
-  beatCooldown = Math.max(0, beatCooldown - dt);
   _readAudio(dt);
   _lerpPalette(dt);
 
-  // Detección de golpes rítmicos / Transitorios para Ondas de Choque Acústicas
-  const transient = visual.bass - visual.beatFloor;
-  if (
-    !reduceMotionQuery.matches &&
-    beatCooldown === 0 &&
-    visual.bass > 0.26 &&
-    transient > 0.022 &&
-    visual.flux > 0.045
-  ) {
-    visual.pulse = _clamp(visual.pulse + 0.50 + visual.flux * 0.35, 0, 1);
-    beatCooldown = 0.15;
-    
-    // Disparar onda de choque acústica
-    const spawnX = width * pointer.x;
-    const spawnY = height * pointer.y;
-    _spawnAcousticRipple(spawnX, spawnY, visual.bass, visual.palette.accent);
-  }
-  visual.pulse *= Math.exp(-4.2 * dt);
+  // El tiempo del fluido avanza más rápido con la energía, pero siempre de
+  // forma continua (la energía ya está suavizada), así que nunca hay saltos.
+  visual.fluidTime += dt * (0.75 + visual.energy * 0.9);
+  // "Swell": crecida lenta de los graves sobre su línea base, sin umbrales.
+  visual.pulse = _smooth(visual.pulse, _clamp((visual.bass - visual.beatFloor) * 3.2, 0, 1), 6, 2.2, dt);
 
-  ctx.clearRect(0, 0, width, height);
+  pointer.x += (pointer.targetX - pointer.x) * (1 - Math.exp(-3 * dt));
+  pointer.y += (pointer.targetY - pointer.y) * (1 - Math.exp(-3 * dt));
 
-  // Pipeline de Renderizado de Simulación Acústica Fluida
-  _drawAtmosphericFluidBase(width, height, time);
-  _drawHarmonicWaveRibbons(width, height, time, dt, motionScale);
-  _drawCymaticPressureNodes(width, height, short, time, dt, motionScale);
-  _updateAndDrawAcousticRipples(width, height, dt);
-  _drawHarmonicCaustics(width, height, short, time, motionScale);
-  _drawCinematicVignette(width, height);
-
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalCompositeOperation = "source-over";
+  ctx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+  _drawBlobs(bgCanvas.width, bgCanvas.height, dt, motionScale);
 
   if (frameAt - lastCssUpdateAt >= CSS_UPDATE_INTERVAL) {
-    _updateCss(time, motionScale);
+    _updateCss(frameAt / 1000, motionScale);
     lastCssUpdateAt = frameAt;
   }
-  _adaptQuality(performance.now() - renderStartedAt, frameAt);
 }
 
 // ------------------------------------------------------------
