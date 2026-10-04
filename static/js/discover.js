@@ -113,6 +113,37 @@ function showSpotifyLogin() {
     </div>`;
 }
 
+function showSpotifyError(message) {
+  recapPanel.hidden = true;
+  spotifyGrid.innerHTML = "";
+  const notRegistered = /may not be registered|not registered/i.test(message);
+  const title = notRegistered
+    ? "Tu cuenta no tiene acceso a esta app de Spotify"
+    : "No pudimos cargar tu música de Spotify";
+  const hint = notRegistered
+    ? "Mientras la app de Spotify esté en modo desarrollo, solo pueden usarla las cuentas añadidas en el panel de desarrolladores (User Management)."
+    : "Revisa tu conexión o vuelve a intentarlo en unos segundos.";
+  spotifyStatus.className = "status-box";
+  spotifyStatus.innerHTML = `
+    <div class="notice notice-error" role="alert">
+      <span class="notice-icon" aria-hidden="true">!</span>
+      <div class="notice-body">
+        <strong></strong>
+        <p></p>
+        <details><summary>Ver detalle técnico</summary><code></code></details>
+        <div class="notice-actions">
+          <button type="button" class="btn-ghost notice-retry">Reintentar</button>
+        </div>
+      </div>
+    </div>`;
+  spotifyStatus.querySelector("strong").textContent = title;
+  spotifyStatus.querySelector("p").textContent = hint;
+  spotifyStatus.querySelector("code").textContent = message;
+  spotifyStatus.querySelector(".notice-retry").addEventListener("click", () => {
+    document.querySelector(".discover-tab.active")?.click();
+  });
+}
+
 function _resetDiscoverPanels() {
   recapPanel.hidden = true;
   playlistCrumb.hidden = true;
@@ -138,7 +169,7 @@ async function _withSpotifyAuth(fn) {
           </button>
         </div>`;
     } else {
-      setStatus(spotifyStatus, `Error: ${err.message}`, "error");
+      showSpotifyError(err.message);
     }
   }
 }
