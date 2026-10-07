@@ -6,6 +6,7 @@
 // ============================================================
 
 import { formatSeconds } from "./api.js";
+import { formatBytes, relativeTime } from "./format.js";
 import { enhanceSelect } from "./dropdown.js";
 
 const gallery = document.getElementById("videoGallery");
@@ -29,8 +30,6 @@ const SORTERS = {
   duration: (a, b) => b.duration - a.duration,
   size: (a, b) => b.size - a.size,
 };
-
-const rtf = new Intl.RelativeTimeFormat("es", { numeric: "auto" });
 
 // ---- utilidades --------------------------------------------------------------
 
@@ -64,24 +63,6 @@ const ICONS = {
   prev: '<path d="m15 5-7 7 7 7"/>',
   next: '<path d="m9 5 7 7-7 7"/>',
 };
-
-function formatBytes(bytes) {
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
-  return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
-}
-
-function relativeTime(epochSeconds) {
-  const diff = epochSeconds - Date.now() / 1000;
-  const steps = [
-    ["year", 31536000], ["month", 2592000], ["week", 604800],
-    ["day", 86400], ["hour", 3600], ["minute", 60],
-  ];
-  for (const [unit, seconds] of steps) {
-    if (Math.abs(diff) >= seconds) return rtf.format(Math.round(diff / seconds), unit);
-  }
-  return "justo ahora";
-}
 
 function fullDate(epochSeconds) {
   return new Date(epochSeconds * 1000).toLocaleString("es", {
