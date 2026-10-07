@@ -3124,14 +3124,6 @@ body.ambient-playing .np-lyrics::before {
 }
 
 /* Prompt de login */
-.spotify-login-box {
-  text-align: center;
-  padding: 44px 20px;
-  color: var(--text-dim);
-}
-
-.spotify-login-box p { margin-bottom: 16px; }
-
 .btn-spotify-login {
   background: #1DB954;
   color: #fff;
@@ -4494,48 +4486,6 @@ body:has(#view-player.active):not(.player-controls-hidden) .mini-player { displa
 .frag-actions { margin-top: var(--sp-5); align-items: center; }
 .frag-actions > button { align-self: center; margin: 0; }
 
-/* Aviso (errores y estados informativos) */
-.notice {
-  display: flex;
-  gap: var(--sp-4);
-  max-width: 640px;
-  margin-top: var(--sp-2);
-  padding: var(--sp-5);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, var(--bg-elev-1), var(--bg-elev-2));
-}
-.notice-icon {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(241, 94, 108, 0.14);
-  color: var(--danger);
-  font-family: var(--font-display);
-  font-weight: 800;
-}
-.notice-body { display: grid; gap: var(--sp-2); min-width: 0; }
-.notice-body strong { font-family: var(--font-display); font-size: 1.05rem; color: var(--text); }
-.notice-body p { margin: 0; color: var(--text-dim); font-size: var(--fs-md); line-height: 1.55; }
-.notice-body details { color: var(--text-faint); font-size: var(--fs-sm); }
-.notice-body summary { cursor: pointer; width: fit-content; }
-.notice-body summary:hover { color: var(--text-dim); }
-.notice-body code {
-  display: block;
-  margin-top: var(--sp-2);
-  padding: var(--sp-3);
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-  color: var(--text-dim);
-  font-size: var(--fs-xs);
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-.notice-actions { margin-top: var(--sp-2); }
 
 /* Sin mensaje no se reserva espacio; las tarjetas de formato alinean su texto arriba. */
 .status-box:empty { display: none; }
@@ -4620,5 +4570,132 @@ body:has(#view-player.active):not(.player-controls-hidden) .mini-player { displa
   .video-gallery { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--sp-3); }
   .vl-head { align-items: flex-start; }
   .discover-tabs { overflow-x: auto; scrollbar-width: none; }
-  .notice { flex-direction: column; padding: var(--sp-4); }
 }
+
+/* ---------- Estado centrado de Descubrir (conectar / permisos / error) ---------- */
+.spotify-state {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-3);
+  max-width: 540px;
+  margin: var(--sp-6) auto 0;
+  padding: var(--sp-7) var(--sp-6) var(--sp-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(29, 185, 84, 0.13), transparent 62%),
+    linear-gradient(180deg, var(--bg-elev-1), var(--bg-elev-2));
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+}
+.spotify-state[data-tone="warn"] {
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(255, 189, 46, 0.12), transparent 62%),
+    linear-gradient(180deg, var(--bg-elev-1), var(--bg-elev-2));
+}
+.spotify-state-icon {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  margin-bottom: var(--sp-2);
+  border: 1px solid rgba(29, 185, 84, 0.38);
+  border-radius: 50%;
+  background: rgba(29, 185, 84, 0.12);
+  box-shadow: 0 0 36px rgba(29, 185, 84, 0.22);
+  color: #1db954;
+}
+.spotify-state[data-tone="warn"] .spotify-state-icon {
+  border-color: rgba(255, 189, 46, 0.4);
+  background: rgba(255, 189, 46, 0.11);
+  box-shadow: 0 0 36px rgba(255, 189, 46, 0.18);
+  color: var(--warn);
+}
+.spotify-state-icon svg { width: 34px; height: 34px; }
+.spotify-state-title {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+}
+.spotify-state-text {
+  max-width: 44ch;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-lg);
+  line-height: 1.6;
+}
+.spotify-state-steps {
+  display: grid;
+  gap: var(--sp-2);
+  width: 100%;
+  max-width: 440px;
+  margin: var(--sp-2) 0 var(--sp-1);
+  padding: 0;
+  list-style: none;
+  counter-reset: paso;
+  text-align: left;
+}
+.spotify-state-steps[hidden] { display: none; }
+.spotify-state-steps li {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  counter-increment: paso;
+}
+.spotify-state-steps li::before {
+  display: grid;
+  flex: 0 0 22px;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 189, 46, 0.16);
+  color: var(--warn);
+  content: counter(paso);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+}
+.spotify-state-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--sp-3); margin-top: var(--sp-3); }
+.spotify-state-actions .btn-spotify-login,
+.spotify-state-actions .btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 24px;
+  text-decoration: none;
+}
+.spotify-state-detail { margin-top: var(--sp-2); color: var(--text-faint); font-size: var(--fs-sm); }
+.spotify-state-detail[hidden] { display: none; }
+.spotify-state-detail summary { cursor: pointer; width: fit-content; margin-inline: auto; }
+.spotify-state-detail summary:hover { color: var(--text-dim); }
+.spotify-state-detail code {
+  display: block;
+  max-width: 460px;
+  margin-top: var(--sp-2);
+  padding: var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 560px) {
+  .spotify-state { margin-top: var(--sp-4); padding: var(--sp-6) var(--sp-4) var(--sp-5); }
+}
+

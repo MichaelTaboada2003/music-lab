@@ -100,47 +100,109 @@ export async function downloadFromSpotify(btn, title, artists) {
   btn.disabled = false;
 }
 
-function showSpotifyLogin() {
+const SPOTIFY_GLYPH = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.207-2.35-1.434-5.305-1.76-8.786-.963-.335.077-.67-.133-.746-.468-.077-.334.132-.67.467-.746 3.816-.874 7.058-.496 9.715 1.122.295.18.388.563.207.848zm1.22-3.237c-.226.368-.706.485-1.072.26-2.687-1.65-6.785-2.13-9.965-1.166-.413.125-.845-.108-.97-.52-.125-.413.108-.844.52-.97 3.66-1.11 8.24-.57 11.226 1.264.367.225.485.705.26 1.072zm.106-3.41c-3.21-1.905-8.5-2.08-11.562-1.15-.49.148-.99-.126-1.138-.616-.148-.49.125-.99.615-1.137 3.51-.97 9.38-.767 13.06 1.417.44.26.582.846.32 1.286-.26.44-.847.582-1.295.32z"/></svg>';
+const SPOTIFY_DASHBOARD_URL = "https://developer.spotify.com/dashboard";
+
+/**
+ * Estado centrado de la vista Descubrir (conectar, permisos o error).
+ * `tone`: "connect" (verde) o "warn" (ámbar). Los textos se asignan con
+ * textContent: el detalle técnico viene de la red y no debe interpretarse.
+ */
+function renderSpotifyState({ tone = "connect", title, text, steps = [], actions = [], detail = "" }) {
+  recapPanel.hidden = true;
   spotifyGrid.innerHTML = "";
   spotifyStatus.className = "status-box";
   spotifyStatus.innerHTML = `
-    <div class="spotify-login-box">
-      <p>Conecta tu cuenta de Spotify para ver tus favoritas y novedades.</p>
-      <button class="btn-spotify-login" onclick="window.location.href='/api/spotify/login'">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="vertical-align:middle; margin-right:8px; margin-top:-2px"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.207-2.35-1.434-5.305-1.76-8.786-.963-.335.077-.67-.133-.746-.468-.077-.334.132-.67.467-.746 3.816-.874 7.058-.496 9.715 1.122.295.18.388.563.207.848zm1.22-3.237c-.226.368-.706.485-1.072.26-2.687-1.65-6.785-2.13-9.965-1.166-.413.125-.845-.108-.97-.52-.125-.413.108-.844.52-.97 3.66-1.11 8.24-.57 11.226 1.264.367.225.485.705.26 1.072zm.106-3.41c-3.21-1.905-8.5-2.08-11.562-1.15-.49.148-.99-.126-1.138-.616-.148-.49.125-.99.615-1.137 3.51-.97 9.38-.767 13.06 1.417.44.26.582.846.32 1.286-.26.44-.847.582-1.295.32z"></path></svg>
-        Iniciar sesión con Spotify
-      </button>
-    </div>`;
+    <section class="spotify-state" data-tone="${tone}" role="${tone === "warn" ? "alert" : "region"}">
+      <span class="spotify-state-icon" aria-hidden="true">${SPOTIFY_GLYPH}</span>
+      <h3 class="spotify-state-title"></h3>
+      <p class="spotify-state-text"></p>
+      <ol class="spotify-state-steps" hidden></ol>
+      <div class="spotify-state-actions"></div>
+      <details class="spotify-state-detail" hidden><summary>Ver detalle técnico</summary><code></code></details>
+    </section>`;
+  const root = spotifyStatus.querySelector(".spotify-state");
+  root.querySelector(".spotify-state-title").textContent = title;
+  root.querySelector(".spotify-state-text").textContent = text;
+
+  if (steps.length) {
+    const list = root.querySelector(".spotify-state-steps");
+    list.hidden = false;
+    steps.forEach((step) => {
+      const item = document.createElement("li");
+      item.textContent = step;
+      list.appendChild(item);
+    });
+  }
+
+  const actionsBox = root.querySelector(".spotify-state-actions");
+  actions.forEach(({ label, href, primary, onClick }) => {
+    const node = document.createElement(href ? "a" : "button");
+    node.textContent = label;
+    node.className = primary ? "btn-spotify-login" : "btn-ghost";
+    if (href) {
+      node.href = href;
+      node.target = "_blank";
+      node.rel = "noopener noreferrer";
+    } else {
+      node.type = "button";
+      node.addEventListener("click", onClick);
+    }
+    actionsBox.appendChild(node);
+  });
+
+  if (detail) {
+    const box = root.querySelector(".spotify-state-detail");
+    box.hidden = false;
+    box.querySelector("code").textContent = detail;
+  }
+}
+
+const goToSpotifyLogin = () => { window.location.href = "/api/spotify/login"; };
+const retryActiveTab = () => document.querySelector(".discover-tab.active")?.click();
+
+function showSpotifyLogin() {
+  renderSpotifyState({
+    title: "Conecta tu cuenta de Spotify",
+    text: "Inicia sesión para ver tu recap del mes, tus playlists y tus favoritas, y traer cualquier canción al Lab con un clic.",
+    actions: [{ label: "Iniciar sesión con Spotify", primary: true, onClick: goToSpotifyLogin }],
+  });
+}
+
+function showSpotifyPermissions() {
+  renderSpotifyState({
+    title: "Necesitamos más permisos",
+    text: "Para leer tus playlists hace falta que vuelvas a conectar tu cuenta y aceptes los permisos que faltan.",
+    actions: [{ label: "Reconectar Spotify", primary: true, onClick: goToSpotifyLogin }],
+  });
 }
 
 function showSpotifyError(message) {
-  recapPanel.hidden = true;
-  spotifyGrid.innerHTML = "";
   const notRegistered = /may not be registered|not registered/i.test(message);
-  const title = notRegistered
-    ? "Tu cuenta no tiene acceso a esta app de Spotify"
-    : "No pudimos cargar tu música de Spotify";
-  const hint = notRegistered
-    ? "Mientras la app de Spotify esté en modo desarrollo, solo pueden usarla las cuentas añadidas en el panel de desarrolladores (User Management)."
-    : "Revisa tu conexión o vuelve a intentarlo en unos segundos.";
-  spotifyStatus.className = "status-box";
-  spotifyStatus.innerHTML = `
-    <div class="notice notice-error" role="alert">
-      <span class="notice-icon" aria-hidden="true">!</span>
-      <div class="notice-body">
-        <strong></strong>
-        <p></p>
-        <details><summary>Ver detalle técnico</summary><code></code></details>
-        <div class="notice-actions">
-          <button type="button" class="btn-ghost notice-retry">Reintentar</button>
-        </div>
-      </div>
-    </div>`;
-  spotifyStatus.querySelector("strong").textContent = title;
-  spotifyStatus.querySelector("p").textContent = hint;
-  spotifyStatus.querySelector("code").textContent = message;
-  spotifyStatus.querySelector(".notice-retry").addEventListener("click", () => {
-    document.querySelector(".discover-tab.active")?.click();
+  if (notRegistered) {
+    renderSpotifyState({
+      tone: "warn",
+      title: "Falta dar acceso a tu cuenta",
+      text: "La app de Spotify está en modo desarrollo y solo la pueden usar las cuentas que añadas como usuarios.",
+      steps: [
+        "Abre el panel de Spotify for Developers y entra a tu app.",
+        "En «User Management» añade el correo de tu cuenta de Spotify.",
+        "Vuelve aquí y pulsa «Reintentar».",
+      ],
+      actions: [
+        { label: "Abrir panel de Spotify", primary: true, href: SPOTIFY_DASHBOARD_URL },
+        { label: "Reintentar", onClick: retryActiveTab },
+      ],
+      detail: message,
+    });
+    return;
+  }
+  renderSpotifyState({
+    tone: "warn",
+    title: "No pudimos cargar tu música",
+    text: "Revisa tu conexión o vuelve a intentarlo en unos segundos.",
+    actions: [{ label: "Reintentar", primary: true, onClick: retryActiveTab }],
+    detail: message,
   });
 }
 
@@ -161,13 +223,7 @@ async function _withSpotifyAuth(fn) {
     if (/401|iniciado sesión|expirada/i.test(err.message)) {
       showSpotifyLogin();
     } else if (/403/i.test(err.message)) {
-      spotifyStatus.innerHTML = `
-        <div class="spotify-login-box">
-          <p>Necesitamos permisos adicionales para leer tus playlists. Vuelve a conectar tu cuenta.</p>
-          <button class="btn-spotify-login" onclick="window.location.href='/api/spotify/login'">
-            Reconectar Spotify
-          </button>
-        </div>`;
+      showSpotifyPermissions();
     } else {
       showSpotifyError(err.message);
     }
