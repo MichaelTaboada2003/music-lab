@@ -94,6 +94,23 @@ export async function cargarListaCanciones() {
   }
 }
 
+/** Vuelve a leer la biblioteca sin interrumpir la canción en curso, salvo que
+ *  haya sido eliminada (en ese caso se detiene y se carga la primera). */
+export async function refreshLibrary() {
+  const currentStem = canciones[indiceActual]?.stem;
+  const data = await apiGet("/api/canciones");
+  canciones = data.canciones || [];
+  const index = canciones.findIndex((song) => song.stem === currentStem);
+  if (index >= 0) {
+    indiceActual = index;
+  } else {
+    audioPlayer.pause();
+    indiceActual = 0;
+    cargarCancion(0);
+  }
+  renderPlaylist();
+}
+
 export function cargarCancion(index) {
   const cancion = canciones[index];
   if (!cancion) {

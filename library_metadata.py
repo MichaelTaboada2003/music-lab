@@ -157,6 +157,24 @@ def save_metadata(stem: str, title: str, artist: str) -> dict:
     return {"title": title, "artist": artist, "metadata_source": "manual"}
 
 
+def pop_override(stem: str) -> dict | None:
+    """Quita (y devuelve) la ficha editada de una canción, para poder restaurarla."""
+    with _LOCK:
+        data = _read_overrides()
+        entry = data.pop(stem, None)
+        if entry is not None:
+            _write_overrides(data)
+        return entry
+
+
+def set_override(stem: str, entry: dict) -> None:
+    """Restaura una ficha editada previamente retirada con pop_override."""
+    with _LOCK:
+        data = _read_overrides()
+        data[stem] = entry
+        _write_overrides(data)
+
+
 def mark_as_clip(stem: str, source_stem: str = "") -> None:
     """Marca un stem como recorte de `source_stem` para poder filtrarlos en la
     interfaz sin depender de cómo se llame el archivo."""

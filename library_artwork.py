@@ -383,3 +383,8 @@ def invalidate_cover(song: Path) -> None:
         cache.pop(song.stem, None)
         _write_cache(cache)
         _cover_path(song).unlink(missing_ok=True)
+
+
+def drop_cover(song: Path) -> None:
+    """Descarta la portada cacheada de una canción que se elimina de la biblioteca."""
+    invalidate_cover(song)

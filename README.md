@@ -63,6 +63,7 @@
   * **Estilo Terminal:** Editor de código estilo Neovim: líneas numeradas, línea activa resaltada, cursor de bloque con brillo, barra de estado con modo, tiempo y progreso, y acabado CRT sutil.
   * **Estilo Color:** Póster tipográfico con el fondo y el color de letra que elijas (o una paleta sugerida): letra grande con relleno suave por palabra, desplazamiento animado entre versos, mini portada y progreso.
 * **Biblioteca de videos:** Galería con portada real de cada video, búsqueda, filtros por formato y orden; vista previa al pasar el cursor, reproductor en ventana con navegación y acciones para descargar, mostrar en carpeta, renombrar y eliminar.
+* **Administrar biblioteca:** Sección para ver qué ocupa cada canción (audio, letra, sincronización, voz e instrumental) y eliminar lo que ya no uses, por parte, por canción o en lote. Incluye resumen de espacio, detección de archivos sin canción y una papelera con "Deshacer" y restauración.
 * **Vista previa fiel:** Color y Terminal se previsualizan con frames del mismo renderizador que exporta el video.
 * **Personalización Total:** Tipografías configurables, escalas de texto y temas de color del Terminal (Terminal Signal, Medianoche Neon, Atardecer Pulse, Nube Frost).
 
@@ -197,6 +198,7 @@ music-lab/
 ├── pyproject.toml              # Definición de dependencias y proyecto
 ├── lyric_styles.py             # Renderizadores de los formatos Color y Terminal
 ├── video_library.py            # Metadatos, portadas y acciones de la biblioteca de videos
+├── library_manager.py          # Inventario, papelera y limpieza de canciones, letras y stems
 └── tiktok_generator.py         # Motor de generación de video con PIL/MoviePy
 ```
 

@@ -8,6 +8,7 @@ import { refreshSongSelect } from "./api.js";
 import { refreshLyricsSongs } from "./lyrics.js";
 import { studioSongSelect, onStudioSongChange } from "./studio.js";
 import { loadVideoGallery } from "./videos.js";
+import { loadManage } from "./manage.js";
 import { trimSongSelect, onTrimSongChange } from "./trim.js";
 import {
   discoverLoaded, setDiscoverLoaded, loadRecap,
@@ -54,6 +55,7 @@ export function activateView(view) {
   rememberView(view);
 
   if (view === "lyrics") refreshLyricsSongs();
+  if (view === "manage") loadManage();
   if (view === "trim") refreshSongSelect(trimSongSelect, onTrimSongChange);
   if (view === "studio") {
     refreshSongSelect(studioSongSelect, onStudioSongChange);
