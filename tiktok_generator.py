@@ -1118,6 +1118,7 @@ def _draw_player_frame_content(
     fragment_start=None,
     fragment_end=None,
     lyric_flow="block",
+    clock_offset=0.0,
 ):
     """Contenido dinámico: progreso y letra paginada de arriba hacia abajo."""
     draw = ImageDraw.Draw(img)
@@ -1131,14 +1132,15 @@ def _draw_player_frame_content(
         (float(line.get("end", 0) or 0) for line in _flatten_lyric_lines(stanzas)),
         default=max(1, current_time),
     )
-    ratio = max(0, min(1, current_time / max(0.001, duration)))
+    clock_time = current_time + (clock_offset if audio_duration else 0.0)
+    ratio = max(0, min(1, clock_time / max(0.001, duration)))
     if ratio:
         draw.rounded_rectangle(
             (prog_left, prog_y, prog_left + round((prog_right - prog_left) * ratio), prog_y + 8),
             radius=4,
             fill=(30, 215, 96),
         )
-    current_label = _format_clock(current_time)
+    current_label = _format_clock(clock_time)
     duration_label = _format_clock(duration)
     label_y = prog_y - 10
     draw.text((p_left + 38, label_y), current_label, font=fonts["time"], fill=(139, 141, 151))
@@ -1249,13 +1251,13 @@ def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
                        cover_path=None, audio_duration=None, audio_volume=1.0,
                        fragment_start=None, fragment_end=None,
                        lyric_flow="block", bg_color="#000000", text_color="#FFFFFF",
-                       font_family="mono", font_size="balanced"):
+                       font_family="mono", font_size="balanced", clock_offset=0.0):
     if layout_style in ("color", "terminal"):
         common = dict(
             size=video_size, title=title, artist=artist, cover_path=cover_path,
             font_family=font_family, font_size=font_size, lyric_style=lyric_style,
             lyric_flow=lyric_flow, fragment_start=fragment_start, fragment_end=fragment_end,
-            audio_duration=audio_duration,
+            audio_duration=audio_duration, clock_offset=clock_offset,
         )
         if layout_style == "color":
             return lyric_styles.render_color_frame(
@@ -1284,6 +1286,7 @@ def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
             fragment_start=fragment_start,
             fragment_end=fragment_end,
             lyric_flow=lyric_flow,
+            clock_offset=clock_offset,
         )
         return np.array(img)
 
@@ -1392,7 +1395,7 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="auto",
                          theme="terminal",
                          font_family="mono", font_size="balanced",
                          bg_color="#000000", text_color="#FFFFFF",
-                         progress_cb=None):
+                         progress_cb=None, clock_offset=0.0, clock_total=None):
     if layout_style not in {"player", "terminal", "color"}:
         raise ValueError("El formato de pantalla debe ser 'player', 'terminal' o 'color'.")
     if layout_style == "color":
@@ -1445,6 +1448,8 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="auto",
     # 3. Cargar audio y resolver el fragmento a exportar (por defecto, todo).
     audio_clip = AudioFileClip(str(audio_path))
     full_duration = audio_clip.duration
+    # Un recorte guardado como archivo propio conserva el reloj del tema original.
+    clock_duration = clock_total or full_duration
     render_size = PLAYER_VIDEO_SIZE if layout_style == "player" else VIDEO_SIZE  # color y terminal: 9:16
     fonts = _build_fonts(font_family="modern", font_size="balanced") if layout_style == "player" else None
     _pc("Componiendo escena", 94)
@@ -1476,7 +1481,7 @@ def create_tiktok_video(audio_source, lyrics_path, output_path, language="auto",
             video_size=render_size, scene_image=scene_image,
             layout_style=layout_style,
             lyric_style=lyric_style, theme_name=theme, cover_path=cover_path,
-            audio_duration=full_duration, audio_volume=audio_volume,
+            audio_duration=clock_duration, clock_offset=clock_offset, audio_volume=audio_volume,
             fragment_start=frag_start, fragment_end=frag_end,
             lyric_flow=lyric_flow, bg_color=bg_color, text_color=text_color,
             font_family=font_family, font_size=font_size,

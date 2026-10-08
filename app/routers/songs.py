@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from audio_downloader import is_url, resolve_audio_source
-from audio_trim import MIN_DURATION, trim_audio
+from audio_trim import MIN_DURATION, probe_duration, trim_audio
 from library_metadata import get_metadata, mark_as_clip, save_metadata
 from library_artwork import apply_custom_cover, invalidate_cover, resolve_cover, search_catalog_covers
 from lyrics_sync import sync_cache_is_current
@@ -235,7 +235,8 @@ def api_recortar_cancion(stem: str, payload: RecorteRequest):
             pass  # La ficha es un extra: el recorte ya está en disco.
         # La marca sobrevive a cualquier renombrado de la ficha, así que la
         # interfaz puede separar canciones de recortes sin mirar el nombre.
-        mark_as_clip(recorte.stem, song.stem)
+        mark_as_clip(recorte.stem, song.stem, start=payload.start,
+                     source_duration=probe_duration(song))
         return {
             "archivo": recorte.name,
             "stem": recorte.stem,

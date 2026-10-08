@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from PIL import Image
 
 import lyric_styles
+import library_metadata
 import tiktok_generator
 import video_library
 from library_artwork import resolve_cover
@@ -93,6 +94,8 @@ def api_generar_video(stem: str, payload: VideoRequest):
         raise HTTPException(400, "El nombre de salida no es válido.")
     output_path = VIDEOS_DIR / f"{output_name}.mp4"
 
+    clock_offset, clock_total = _audio_clock(song)
+
     def _tarea(progress_cb):
         tiktok_generator.create_tiktok_video(
             str(song), str(lp), str(output_path),
@@ -106,7 +109,7 @@ def api_generar_video(stem: str, payload: VideoRequest):
             theme=payload.theme,
             font_family=payload.font_family, font_size=payload.font_size,
             bg_color=payload.bg_color, text_color=payload.text_color,
-            progress_cb=progress_cb,
+            progress_cb=progress_cb, clock_offset=clock_offset, clock_total=clock_total,
         )
         return {"video": output_path.name}
 
@@ -224,8 +227,13 @@ def _probe_seconds(path: str, mtime_ns: int) -> Optional[float]:
         return None
 
 
-def _audio_seconds(song: Path) -> Optional[float]:
-    return _probe_seconds(str(song), song.stat().st_mtime_ns)
+def _audio_clock(song: Path) -> tuple[float, Optional[float]]:
+    """(desplazamiento, duración total) del reloj que muestra la barra: el del
+    tema original si la canción es un recorte guardado, o el propio archivo."""
+    span = library_metadata.clip_span(song.stem)
+    if span:
+        return span
+    return 0.0, _probe_seconds(str(song), song.stat().st_mtime_ns)
 
 
 @router.get("/api/video/{stem}/frame")
@@ -253,8 +261,9 @@ def api_video_frame(
         cover = resolve_cover(song)
     except Exception:
         cover = None
+    clock_offset, clock_total = _audio_clock(song)
     common = dict(
-        audio_duration=_audio_seconds(song),
+        audio_duration=clock_total, clock_offset=clock_offset,
         size=tiktok_generator.VIDEO_SIZE, title=titulo or stem, artist=artista, cover_path=cover,
         font_family=font_family, font_size=font_size, lyric_style=lyric_style,
         lyric_flow=lyric_flow, fragment_start=start, fragment_end=end, as_image=True,

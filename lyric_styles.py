@@ -407,7 +407,7 @@ def _line_height(line, family, size):
 def render_color_frame(stanzas, t, *, size, bg, text, title=None, artist=None, cover_path=None,
                        font_family="modern", font_size="balanced", lyric_style="karaoke",
                        lyric_flow="block", fragment_start=None, fragment_end=None, as_image=False,
-                       audio_duration=None):
+                       audio_duration=None, clock_offset=0.0):
     bg, text = _rgb(bg), _rgb(text)
     w, h = size
     scene, geometry = build_color_scene(size, bg, text, title, artist, cover_path)
@@ -415,7 +415,7 @@ def render_color_frame(stanzas, t, *, size, bg, text, title=None, artist=None, c
     draw = ImageDraw.Draw(img)
     lines = fragment_lines(stanzas, fragment_start, fragment_end)
 
-    _draw_color_progress(img, draw, t, bg, text, lines, fragment_start, fragment_end, audio_duration)
+    _draw_color_progress(img, draw, t, bg, text, lines, fragment_start, fragment_end, audio_duration, clock_offset)
     _draw_equalizer(draw, t, bg, text, geometry["eq_x"])
     if not lines:
         return img if as_image else np.asarray(img)
@@ -477,11 +477,14 @@ def _render_color_single(img, lines, i, t, family, active_size, bg, text, lyric_
         _draw_color_line(img, lines[k], k, i, t, img.width / 2, top, q, alpha, family, bg, text, lyric_style)
 
 
-def _draw_color_progress(img, draw, t, bg, text, lines, fragment_start, fragment_end, audio_duration=None):
+def _draw_color_progress(img, draw, t, bg, text, lines, fragment_start, fragment_end, audio_duration=None, clock_offset=0.0):
     # La barra representa la canción completa: el fragmento exportado solo
     # recorre el tramo que le corresponde. Sin duración conocida, usa el fragmento.
     if audio_duration:
+        # El recorte puede ser un archivo propio: clock_offset es dónde empieza
+        # dentro del tema completo, de modo que el reloj siga siendo el original.
         start, total = 0.0, max(0.001, float(audio_duration))
+        t = t + clock_offset
     else:
         start = fragment_start if fragment_start is not None else (float(lines[0]["start"]) if lines else 0.0)
         end = fragment_end if fragment_end is not None else (float(lines[-1]["end"]) if lines else start + 1)
@@ -492,13 +495,8 @@ def _draw_color_progress(img, draw, t, bg, text, lines, fragment_start, fragment
     radius = bar_h / 2
     draw.rounded_rectangle((x0, y, x1, y + bar_h), radius, fill=mix(bg, text, 0.22))
     filled = round((x1 - x0) * progress)
-    if filled >= bar_h:
+    if filled > 0:
         draw.rounded_rectangle((x0, y, x0 + filled, y + bar_h), radius, fill=text)
-    knob_r = 15
-    knob_x, knob_y = x0 + filled, y + radius
-    draw.ellipse((knob_x - knob_r - 4, knob_y - knob_r - 4, knob_x + knob_r + 4, knob_y + knob_r + 4),
-                 fill=mix(bg, text, 0.28))
-    draw.ellipse((knob_x - knob_r, knob_y - knob_r, knob_x + knob_r, knob_y + knob_r), fill=text)
     label = face("modern", "demi", 32)
     dim = mix(bg, text, 0.7)
     draw_text(img, x0, y + 38, clock(t - start), label, dim)
@@ -614,7 +612,7 @@ def _add_glow(img, box, text, font, color, strength=0.9, radius=14):
 def render_terminal_frame(stanzas, t, *, size, theme, title=None, artist=None, cover_path=None,
                           font_family="mono", font_size="balanced", lyric_style="karaoke",
                           lyric_flow="block", fragment_start=None, fragment_end=None, as_image=False,
-                          audio_duration=None):
+                          audio_duration=None, clock_offset=0.0):
     w, h = size
     img = build_terminal_scene(size, theme, title, artist).copy()
     draw = ImageDraw.Draw(img)
@@ -635,10 +633,12 @@ def render_terminal_frame(stanzas, t, *, size, theme, title=None, artist=None, c
     }
     start = fragment_start if fragment_start is not None else (float(lines[0]["start"]) if lines else 0.0)
     end = fragment_end if fragment_end is not None else (float(lines[-1]["end"]) if lines else start + 1)
+    i = active_index(lines, t) if lines else 0
+    status_t = t
     if audio_duration:
         start, end = 0.0, float(audio_duration)
-    i = active_index(lines, t) if lines else 0
-    _draw_terminal_status(img, draw, theme, colors, t, start, end, i, len(lines), title)
+        status_t = t + clock_offset
+    _draw_terminal_status(img, draw, theme, colors, status_t, start, end, i, len(lines), title)
     if not lines:
         return img if as_image else np.asarray(img)
 

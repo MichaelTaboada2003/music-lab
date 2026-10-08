@@ -175,10 +175,26 @@ def set_override(stem: str, entry: dict) -> None:
         _write_overrides(data)
 
 
-def mark_as_clip(stem: str, source_stem: str = "") -> None:
+def mark_as_clip(stem: str, source_stem: str = "", start: float | None = None,
+                 source_duration: float | None = None) -> None:
     """Marca un stem como recorte de `source_stem` para poder filtrarlos en la
-    interfaz sin depender de cómo se llame el archivo."""
+    interfaz sin depender de cómo se llame el archivo. `start` y
+    `source_duration` recuerdan dónde cae el recorte dentro del tema completo."""
+    entry = {"kind": "clip", "clip_of": source_stem}
+    if start is not None and source_duration:
+        entry.update(clip_start=round(float(start), 3), clip_source_duration=round(float(source_duration), 3))
     with _LOCK:
         data = _read_overrides()
-        data[stem] = {**data.get(stem, {}), "kind": "clip", "clip_of": source_stem}
+        data[stem] = {**data.get(stem, {}), **entry}
         _write_overrides(data)
+
+
+def clip_span(stem: str) -> tuple[float, float] | None:
+    """(inicio, duración total) del tema original al que pertenece el recorte,
+    o None si no se guardó (recortes antiguos o canciones completas)."""
+    with _LOCK:
+        manual = _read_overrides().get(stem, {})
+    start, total = manual.get("clip_start"), manual.get("clip_source_duration")
+    if manual.get("kind") == "clip" and isinstance(start, (int, float)) and isinstance(total, (int, float)) and total > 0:
+        return float(start), float(total)
+    return None
