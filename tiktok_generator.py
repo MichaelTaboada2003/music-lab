@@ -1255,6 +1255,7 @@ def make_karaoke_frame(stanzas, current_time, fonts, title=None, artist=None,
             size=video_size, title=title, artist=artist, cover_path=cover_path,
             font_family=font_family, font_size=font_size, lyric_style=lyric_style,
             lyric_flow=lyric_flow, fragment_start=fragment_start, fragment_end=fragment_end,
+            audio_duration=audio_duration,
         )
         if layout_style == "color":
             return lyric_styles.render_color_frame(

@@ -14,6 +14,7 @@ import io
 import json
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -211,6 +212,22 @@ def _stanzas_for(stem: str):
     return cached[1]
 
 
+@lru_cache(maxsize=64)
+def _probe_seconds(path: str, mtime_ns: int) -> Optional[float]:
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10,
+        )
+        return float(json.loads(out.stdout)["format"]["duration"]) if out.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def _audio_seconds(song: Path) -> Optional[float]:
+    return _probe_seconds(str(song), song.stat().st_mtime_ns)
+
+
 @router.get("/api/video/{stem}/frame")
 def api_video_frame(
     stem: str,
@@ -237,6 +254,7 @@ def api_video_frame(
     except Exception:
         cover = None
     common = dict(
+        audio_duration=_audio_seconds(song),
         size=tiktok_generator.VIDEO_SIZE, title=titulo or stem, artist=artista, cover_path=cover,
         font_family=font_family, font_size=font_size, lyric_style=lyric_style,
         lyric_flow=lyric_flow, fragment_start=start, fragment_end=end, as_image=True,
