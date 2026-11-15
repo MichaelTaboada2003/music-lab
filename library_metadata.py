@@ -65,7 +65,25 @@ def _write_overrides(data: dict) -> None:
             os.unlink(temp_name)
 
 
+_tags_cache: dict[str, tuple[tuple[int, int], tuple[str, str]]] = {}
+
+
 def _embedded_tags(song: Path) -> tuple[str, str]:
+    """Tags del archivo, recordados mientras no cambie (ffprobe es caro)."""
+    try:
+        stat = song.stat()
+        firma = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return "", ""
+    cached = _tags_cache.get(str(song))
+    if cached and cached[0] == firma:
+        return cached[1]
+    tags = _probe_embedded_tags(song)
+    _tags_cache[str(song)] = (firma, tags)
+    return tags
+
+
+def _probe_embedded_tags(song: Path) -> tuple[str, str]:
     command = [
         "ffprobe", "-v", "error", "-show_entries", "format_tags=title,artist",
         "-of", "json", str(song),

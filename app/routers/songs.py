@@ -7,6 +7,8 @@ Endpoints de canciones y letras:
   - POST /api/canciones/{stem}/recortar → recorta un fragmento como copia nueva
 """
 
+import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -16,11 +18,13 @@ from pydantic import BaseModel, Field
 
 from audio_downloader import is_url, resolve_audio_source
 from audio_trim import MIN_DURATION, probe_duration, trim_audio
-from library_metadata import get_metadata, mark_as_clip, save_metadata
+import clip_lyrics
+import lyrics_catalog
+from library_metadata import clip_span, get_metadata, mark_as_clip, save_metadata
 from library_artwork import apply_custom_cover, invalidate_cover, resolve_cover, search_catalog_covers
 from lyrics_sync import sync_cache_is_current
 
-from ..config import CANCIONES_DIR
+from ..config import CANCIONES_DIR, VIDEOS_DIR
 from ..jobs import start_job
 from ..utils import (
     cached_stem_is_current, find_song, instrumental_path_for, list_songs, lyrics_path_for, obtener_duracion,
@@ -30,45 +34,88 @@ from ..utils import (
 router = APIRouter(tags=["songs"])
 
 
+_sync_state_cache: dict[str, tuple[tuple, bool]] = {}
+
+
 def _has_playable_sync(song) -> bool:
+    """Leer y validar cada .sync.json (cientos de KB + sha256 de la letra) en
+    cada listado es lo más caro de /api/canciones; el resultado se recuerda
+    mientras no cambien audio, letra ni cache."""
     lyrics_path = lyrics_path_for(song.stem)
     cache_path = sync_cache_path_for(song.stem)
-    if not lyrics_path.is_file() or not cache_path.is_file():
-        return False
     try:
-        import json
-
+        firma = tuple(
+            (st.st_mtime_ns, st.st_size)
+            for st in (song.stat(), lyrics_path.stat(), cache_path.stat())
+        )
+    except OSError:
+        return False  # falta la letra o la sincronización
+    cached = _sync_state_cache.get(song.stem)
+    if cached and cached[0] == firma:
+        return cached[1]
+    try:
         data = json.loads(cache_path.read_text(encoding="utf-8"))
-        return bool(
+        playable = bool(
             sync_cache_is_current(data, str(song), str(lyrics_path))
             and data.get("quality", {}).get("playable")
         )
-    except (OSError, ValueError, TypeError):
-        return False
+    except (OSError, ValueError, TypeError, AttributeError):
+        playable = False
+    _sync_state_cache[song.stem] = (firma, playable)
+    return playable
+
+
+def _video_stems() -> list[str]:
+    try:
+        return [v.stem for v in VIDEOS_DIR.iterdir() if v.suffix.lower() == ".mp4"]
+    except OSError:
+        return []
+
+
+def _song_entry(p, video_stems=()) -> dict:
+    metadata = get_metadata(p)
+    extra = {}
+    if metadata["kind"] == "clip":
+        # Los videos se nombran "<canción> - <formato>…": así se sabe qué
+        # recortes ya cumplieron su función y se pueden limpiar.
+        extra["videos"] = sum(
+            1 for name in video_stems if name == p.stem or name.startswith(f"{p.stem} - "))
+        span = clip_span(p.stem)
+        if span:
+            extra["clip_start"] = span[0]
+    inst_path = instrumental_path_for(p.stem)
+    has_pista = cached_stem_is_current(inst_path, p)
+    voc_path = vocals_path_for(p.stem)
+    has_vocals = voc_path.is_file()
+    return {
+        "nombre": p.name,
+        "stem": p.stem,
+        "duracion": obtener_duracion(p),
+        **metadata,
+        "tiene_letra": lyrics_path_for(p.stem).is_file(),
+        "tiene_sync": _has_playable_sync(p),
+        "tiene_pista": has_pista,
+        "pista_url": f"/vocals/{inst_path.name}" if has_pista else None,
+        "tiene_vocals": has_vocals,
+        "vocals_url": f"/vocals/{voc_path.name}" if has_vocals else None,
+        **extra,
+    }
 
 
 @router.get("/api/canciones")
 def api_canciones():
-    canciones = []
-    for p in list_songs():
-        metadata = get_metadata(p)
-        inst_path = instrumental_path_for(p.stem)
-        has_pista = cached_stem_is_current(inst_path, p)
-        voc_path = vocals_path_for(p.stem)
-        has_vocals = voc_path.is_file()
-        canciones.append({
-            "nombre": p.name,
-            "stem": p.stem,
-            "duracion": obtener_duracion(p),
-            **metadata,
-            "tiene_letra": lyrics_path_for(p.stem).is_file(),
-            "tiene_sync": _has_playable_sync(p),
-            "tiene_pista": has_pista,
-            "pista_url": f"/vocals/{inst_path.name}" if has_pista else None,
-            "tiene_vocals": has_vocals,
-            "vocals_url": f"/vocals/{voc_path.name}" if has_vocals else None,
-        })
-    return {"canciones": canciones}
+    # El primer listado tras arrancar lanza ffprobe por canción; en paralelo
+    # tarda lo que el archivo más lento, no la suma. Después todo sale de cache.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        videos = _video_stems()
+        return {"canciones": list(pool.map(lambda song: _song_entry(song, videos), list_songs()))}
+
+
+def _duration_or_none(song) -> float | None:
+    try:
+        return probe_duration(song)
+    except Exception:
+        return None
 
 
 class DescargaRequest(BaseModel):
@@ -86,8 +133,21 @@ def api_descargar(payload: DescargaRequest):
             payload.url, output_dir=str(CANCIONES_DIR),
             filename=payload.nombre or None,
         )
+        # La letra llega con la canción; si el catálogo no la tiene o no hay
+        # red, la descarga sigue siendo válida.
+        letra = None
+        try:
+            progress_cb("Buscando la letra", None)
+            letra = lyrics_catalog.save_for_song(
+                resultado, lyrics_path_for(resultado.stem), _duration_or_none(resultado))
+        except Exception:
+            letra = None
         progress_cb("Actualizando biblioteca", 100)
-        return {"archivo": resultado.name}
+        return {
+            "archivo": resultado.name,
+            "letra": bool(letra),
+            "letra_con_tiempos": bool(letra and letra["con_tiempos"]),
+        }
 
     key = f"download:{payload.url}:{payload.nombre or ''}"
     return {"job_id": start_job(task, key=key)}
@@ -99,6 +159,30 @@ def api_obtener_letra(stem: str):
     if not path.is_file():
         return {"existe": False, "texto": ""}
     return {"existe": True, "texto": path.read_text(encoding="utf-8")}
+
+
+@router.post("/api/letra/{stem}/buscar")
+def api_buscar_letra(stem: str, guardar: bool = False):
+    """Busca la letra en el catálogo. Con `guardar` la escribe (sin pisar una
+    existente salvo que se pida desde la vista de Letras tras revisarla)."""
+    song = find_song(stem)
+    duration = _duration_or_none(song)
+    metadata = get_metadata(song)
+    found = lyrics_catalog.find_lyrics(metadata["title"], metadata.get("artist", ""), duration)
+    if not found or not found["plain"]:
+        return {"encontrada": False, "texto": ""}
+    guardada = False
+    if guardar and not lyrics_path_for(stem).is_file():
+        guardada = bool(lyrics_catalog.save_for_song(song, lyrics_path_for(stem), duration))
+    elif found["synced"]:
+        # Aunque la letra se revise antes de guardarla, los tiempos por verso
+        # ya sirven para recortar con letra.
+        lyrics_catalog.lrc_path_for(stem).write_text(found["synced"].strip() + "\n", encoding="utf-8")
+    return {
+        "encontrada": True, "texto": found["plain"], "guardada": guardada,
+        "con_tiempos": bool(found["synced"]),
+        "titulo": found["title"], "artista": found["artist"],
+    }
 
 
 class LetraRequest(BaseModel):
@@ -235,12 +319,24 @@ def api_recortar_cancion(stem: str, payload: RecorteRequest):
             pass  # La ficha es un extra: el recorte ya está en disco.
         # La marca sobrevive a cualquier renombrado de la ficha, así que la
         # interfaz puede separar canciones de recortes sin mirar el nombre.
+        duracion_origen = probe_duration(song)
         mark_as_clip(recorte.stem, song.stem, start=payload.start,
-                     source_duration=probe_duration(song))
+                     source_duration=duracion_origen)
+        # El recorte nace con los versos que suenan en él (y con karaoke si la
+        # canción completa ya estaba sincronizada).
+        letra = {"versos": 0, "karaoke": False}
+        try:
+            fin = duracion_origen if payload.end is None else min(payload.end, duracion_origen)
+            letra = clip_lyrics.derive_clip_lyrics(
+                song, recorte, payload.start, fin, probe_duration(recorte))
+        except Exception:
+            pass  # la letra heredada es un extra: el recorte ya está en disco
         return {
             "archivo": recorte.name,
             "stem": recorte.stem,
             "duracion": obtener_duracion(recorte),
+            "versos": letra["versos"],
+            "karaoke": letra["karaoke"],
         }
 
     key = (f"trim:{stem}:{payload.start}:{payload.end}:{nombre or ''}:"

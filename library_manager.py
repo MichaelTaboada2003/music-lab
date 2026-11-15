@@ -115,7 +115,8 @@ def song_parts(stem: str) -> dict[str, list[Path]]:
     audio = _audio_file(stem)
     parts = {
         "audio": [audio] if audio else [],
-        "lyrics": [p for p in (LETRAS_DIR / f"{stem}.txt",) if p.is_file()],
+        # El .lrc (tiempos por verso del catálogo) acompaña siempre a la letra.
+        "lyrics": [p for p in (LETRAS_DIR / f"{stem}.txt", LETRAS_DIR / f"{stem}.lrc") if p.is_file()],
         "sync": [p for p in (LETRAS_DIR / f"{stem}.sync.json",) if p.is_file()],
         "vocals": _stem_files(stem, "vocals"),
         "instrumental": _stem_files(stem, "instrumental"),

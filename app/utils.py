@@ -16,9 +16,22 @@ from fastapi import HTTPException
 from .config import AUDIO_EXTS, CANCIONES_DIR, LETRAS_DIR, VOCALS_DIR
 
 
+# ffprobe cuesta ~20 ms por archivo y la biblioteca se lista en cada cambio de
+# vista: se recuerda la duración mientras el archivo no cambie.
+_duration_cache: dict[str, tuple[tuple[int, int], str]] = {}
+
+
 def obtener_duracion(ruta_archivo: Path) -> str:
     """Devuelve la duración del audio como 'M:SS' usando ffprobe. Si falla
     (ffprobe no instalado o archivo corrupto), devuelve 'Desconocida'."""
+    try:
+        stat = ruta_archivo.stat()
+        firma = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return "Desconocida"
+    cached = _duration_cache.get(str(ruta_archivo))
+    if cached and cached[0] == firma:
+        return cached[1]
     try:
         comando = [
             "ffprobe", "-v", "error",
@@ -26,14 +39,17 @@ def obtener_duracion(ruta_archivo: Path) -> str:
             "-of", "json", str(ruta_archivo),
         ]
         resultado = subprocess.run(
-            comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            timeout=15,
         )
         if resultado.returncode == 0:
             info = json.loads(resultado.stdout)
             duracion_segundos = float(info["format"]["duration"])
             minutos = int(duracion_segundos // 60)
             segundos = int(duracion_segundos % 60)
-            return f"{minutos}:{str(segundos).zfill(2)}"
+            texto = f"{minutos}:{str(segundos).zfill(2)}"
+            _duration_cache[str(ruta_archivo)] = (firma, texto)
+            return texto
     except Exception:
         pass
     return "Desconocida"
