@@ -111,6 +111,54 @@ class WhisperPrecisionTests(unittest.TestCase):
 
         self.assertIs(captured.get("fp16"), False)
 
+
+class LeadingPadTests(unittest.TestCase):
+    """Whisper medium se salta el primer verso si la voz entra en seco, así
+    que se transcribe con silencio delante y se devuelve el reloj original."""
+
+    def test_antepone_silencio_y_devuelve_los_tiempos_originales(self):
+        sr = lyrics_sync.WHISPER_SAMPLE_RATE
+        pad = lyrics_sync.LEADING_PAD_SECONDS
+        seen = {}
+
+        class _FakeWhisper:
+            @staticmethod
+            def load_model(name, device="cpu"):
+                return object()
+
+            @staticmethod
+            def load_audio(path):
+                return np.full(sr * 2, 0.1, dtype=np.float32)
+
+            @staticmethod
+            def transcribe(model, audio, **kwargs):
+                seen["samples"] = len(audio)
+                seen["head"] = float(np.abs(audio[: int(pad * sr)]).max())
+                return {"segments": [{"start": pad + 0.1, "end": pad + 1.5, "words": [
+                    {"text": "supuestamente", "start": pad + 0.1, "end": pad + 0.9},
+                    {"text": "ya", "start": pad - 0.2, "end": pad + 1.5},
+                ]}]}
+
+        original_whisper = lyrics_sync.whisper
+        original_cache = dict(lyrics_sync._MODEL_CACHE)
+        lyrics_sync.whisper = _FakeWhisper
+        lyrics_sync._MODEL_CACHE.clear()
+        try:
+            result, duration = lyrics_sync._transcribe("audio.flac", "es", "medium", vad=None)
+        finally:
+            lyrics_sync.whisper = original_whisper
+            lyrics_sync._MODEL_CACHE.clear()
+            lyrics_sync._MODEL_CACHE.update(original_cache)
+
+        self.assertEqual(seen["samples"], int(sr * (2 + pad)))
+        self.assertEqual(seen["head"], 0.0)
+        self.assertAlmostEqual(duration, 2.0)
+        segment = result["segments"][0]
+        self.assertAlmostEqual(segment["start"], 0.1, places=6)
+        self.assertAlmostEqual(segment["words"][0]["end"], 0.9, places=6)
+        # Nada puede quedar antes del inicio real del audio.
+        self.assertEqual(segment["words"][1]["start"], 0.0)
+
     def test_el_dispositivo_se_puede_forzar_por_entorno(self):
         previo = os.environ.get("MUSIC_LAB_WHISPER_DEVICE")
         os.environ["MUSIC_LAB_WHISPER_DEVICE"] = "cpu"

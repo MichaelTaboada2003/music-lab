@@ -31,10 +31,24 @@ from pathlib import Path
 
 import numpy as np
 
-try:
-    import whisper_timestamped as whisper
-except ImportError:
-    whisper = None
+# whisper-timestamped arrastra torch, scipy y numba (~1.5 s de import). Se carga
+# la primera vez que hace falta transcribir para que el servidor arranque al
+# instante; los tests pueden inyectar un doble asignando `lyrics_sync.whisper`.
+whisper = None
+
+
+def _whisper():
+    global whisper
+    if whisper is None:
+        try:
+            import whisper_timestamped
+        except ImportError as error:
+            raise RuntimeError(
+                "whisper_timestamped no está instalado. "
+                "Instálalo con: pip install whisper-timestamped"
+            ) from error
+        whisper = whisper_timestamped
+    return whisper
 
 WHISPER_SAMPLE_RATE = 16000
 _WORD_RE = re.compile(r"[^\w'áéíóúñüàèìòùâêîôûäëïöü]+", re.UNICODE)
@@ -207,21 +221,16 @@ def _get_model(model_name: str):
     device = _select_whisper_device()
     key = (model_name, device)
     if key not in _MODEL_CACHE:
-        if whisper is None:
-            raise RuntimeError(
-                "whisper_timestamped no está instalado. "
-                "Instálalo con: pip install whisper-timestamped"
-            )
         print(f"Cargando modelo Whisper '{model_name}' en {device} (puede tardar la primera vez)...")
         try:
-            _MODEL_CACHE[key] = whisper.load_model(model_name, device=device)
+            _MODEL_CACHE[key] = _whisper().load_model(model_name, device=device)
         except Exception as error:
             if device == "cpu":
                 raise
             # Un backend caprichoso no debe impedir sincronizar: se reintenta
             # en CPU, que es el camino de referencia.
             print(f"No se pudo usar {device} ({error}); se continúa en CPU.")
-            _MODEL_CACHE[key] = whisper.load_model(model_name, device="cpu")
+            _MODEL_CACHE[key] = _whisper().load_model(model_name, device="cpu")
     return _MODEL_CACHE[key]
 
 
@@ -234,7 +243,7 @@ def _transcribe(
 ):
     model = _get_model(model_name)
     print(f"Transcribiendo {audio_path} para obtener tiempos reales...")
-    audio = whisper.load_audio(audio_path)
+    audio = _whisper().load_audio(audio_path)
     duration = len(audio) / WHISPER_SAMPLE_RATE
     # La alineación por atención de whisper-timestamped es más lenta que las
     # marcas nativas, pero en voces musicales tenues conserva muchos más versos
@@ -253,10 +262,48 @@ def _transcribe(
         # La letra guía el vocabulario de Whisper, pero los tiempos siguen
         # viniendo del audio y nunca se inventan desde el texto.
         kwargs["initial_prompt"] = initial_prompt
+    if vad in ("silero", True):
+        _ensure_silero_trusted()
     transcription_language = None if language in (None, "", "auto") else language
-    result = whisper.transcribe(model, audio, language=transcription_language, **kwargs)
-    _recover_uncovered_tail(model, audio, result, transcription_language, kwargs)
+    # Si la voz entra en seco (recortes que empiezan cantando), Whisper medium
+    # se salta el primer verso entero y estira la siguiente palabra sobre él.
+    # Un colchón de silencio al inicio lo evita; los tiempos se devuelven
+    # luego al reloj original.
+    padded = np.concatenate([np.zeros(int(LEADING_PAD_SECONDS * WHISPER_SAMPLE_RATE), dtype=audio.dtype), audio])
+    result = _whisper().transcribe(model, padded, language=transcription_language, **kwargs)
+    _recover_uncovered_tail(model, padded, result, transcription_language, kwargs)
+    _shift_result_times(result, -LEADING_PAD_SECONDS)
     return result, duration
+
+
+# Silencio que se antepone al audio antes de transcribir (ver `_transcribe`).
+LEADING_PAD_SECONDS = 1.0
+
+
+def _shift_result_times(result, offset: float) -> None:
+    """Desplaza segmentos y palabras sin dejar tiempos negativos."""
+    for segment in result.get("segments", []):
+        segment["start"] = max(0.0, segment["start"] + offset)
+        segment["end"] = max(0.0, segment["end"] + offset)
+        for word in segment.get("words", []):
+            word["start"] = max(0.0, word["start"] + offset)
+            word["end"] = max(0.0, word["end"] + offset)
+
+
+def _ensure_silero_trusted() -> None:
+    """Descarga silero-vad marcándolo como confiable.
+
+    whisper-timestamped llama a ``torch.hub.load`` sin ``trust_repo``, así que
+    la primera vez torch pregunta por consola y, en el servidor (sin stdin),
+    revienta con EOFError. Cargarlo aquí una vez con ``trust_repo=True`` lo
+    deja en la caché y en la lista de confianza de torch.hub.
+    """
+    import torch
+
+    hub_dir = Path(torch.hub.get_dir())
+    if (hub_dir / "snakers4_silero-vad_master").is_dir():
+        return
+    torch.hub.load("snakers4/silero-vad", "silero_vad", onnx=False, trust_repo=True)
 
 
 # Whisper a veces se detiene tras un coro repetido y deja sin transcribir el
@@ -288,7 +335,7 @@ def _recover_uncovered_tail(model, audio, result, language, kwargs) -> None:
         if len(tail) == 0 or float(np.sqrt(np.mean(tail ** 2))) < TAIL_RECOVERY_MIN_RMS:
             return
         print(f"Recuperando tramo sin transcribir: {start:.1f}s - {duration:.1f}s")
-        extra = whisper.transcribe(model, tail, language=language, **kwargs)
+        extra = _whisper().transcribe(model, tail, language=language, **kwargs)
         new_segments = []
         for segment in extra.get("segments", []):
             shifted = dict(segment)
