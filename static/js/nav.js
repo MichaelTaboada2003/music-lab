@@ -9,7 +9,8 @@ import { refreshLyricsSongs } from "./lyrics.js";
 import { studioSongSelect, onStudioSongChange } from "./studio.js";
 import { loadVideoGallery } from "./videos.js";
 import { loadManage } from "./manage.js";
-import { trimSongSelect, onTrimSongChange } from "./trim.js";
+import { trimSongSelect, onTrimSongChange, soloCanciones } from "./trim.js";
+import { cargarListaCanciones } from "./player.js";
 import {
   discoverLoaded, setDiscoverLoaded, loadRecap,
 } from "./discover.js";
@@ -56,7 +57,11 @@ export function activateView(view) {
 
   if (view === "lyrics") refreshLyricsSongs();
   if (view === "manage") loadManage();
-  if (view === "trim") refreshSongSelect(trimSongSelect, onTrimSongChange);
+  if (view === "trim") {
+    refreshSongSelect(trimSongSelect, onTrimSongChange, soloCanciones);
+    // Los videos exportados cambian qué recortes se pueden limpiar.
+    cargarListaCanciones();
+  }
   if (view === "studio") {
     refreshSongSelect(studioSongSelect, onStudioSongChange);
     loadVideoGallery();

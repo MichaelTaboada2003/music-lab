@@ -65,7 +65,7 @@ def _refresh_token(refresh_token: str):
     req.add_header("Authorization", f"Basic {auth_b64}")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
 
-    with urllib.request.urlopen(req) as response:
+    with urllib.request.urlopen(req, timeout=12) as response:
         new_data = json.loads(response.read().decode("utf-8"))
         if "refresh_token" not in new_data:
             new_data["refresh_token"] = refresh_token
@@ -89,7 +89,7 @@ def _api_request(endpoint: str, method: str = "GET", body=None):
         if body is not None:
             req.add_header("Content-Type", "application/json")
             req.data = json.dumps(body).encode("utf-8")
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=12) as response:
             return json.loads(response.read().decode("utf-8"))
 
     try:
@@ -149,7 +149,7 @@ def spotify_callback(code: str):
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
 
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=12) as response:
             token_data = json.loads(response.read().decode("utf-8"))
             _save_token(token_data)
             return RedirectResponse("/#view-spotify")

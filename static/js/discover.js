@@ -3,7 +3,7 @@
 //               Mis favoritas (Spotify Web API)
 // ============================================================
 
-import { apiGet, apiPost, setStatus, refreshSongSelect, waitForJob } from "./api.js";
+import { apiGet, apiPost, escapeHtml, setStatus, refreshSongSelect, waitForJob } from "./api.js";
 import { canciones, cargarListaCanciones } from "./player.js";
 import { studioSongSelect } from "./studio.js";
 
@@ -259,8 +259,8 @@ function _renderRecapArtists(artists) {
     card.className = "recap-artist";
     card.innerHTML = `
       <div class="recap-rank">#${i + 1}</div>
-      <div class="recap-artist-avatar">${img ? `<img src="${img}" alt="">` : ""}</div>
-      <div class="recap-artist-name">${a.name}</div>
+      <div class="recap-artist-avatar">${img ? `<img src="${escapeHtml(img)}" alt="" loading="lazy">` : ""}</div>
+      <div class="recap-artist-name">${escapeHtml(a.name)}</div>
     `;
     recapArtists.appendChild(card);
   });
@@ -300,10 +300,10 @@ function _renderPlaylistCard(pl) {
   card.className = "spotify-card playlist-card";
   card.innerHTML = `
     <div class="spotify-img-container">
-      ${img ? `<img src="${img}" class="spotify-img" alt="">` : `<div class="playlist-cover-fallback"></div>`}
+      ${img ? `<img src="${escapeHtml(img)}" class="spotify-img" alt="" loading="lazy">` : `<div class="playlist-cover-fallback"></div>`}
     </div>
-    <div class="spotify-title" title="${pl.name}">${pl.name}</div>
-    <div class="spotify-artist">${owner ? "por " + owner : ""}</div>
+    <div class="spotify-title" title="${escapeHtml(pl.name)}">${escapeHtml(pl.name)}</div>
+    <div class="spotify-artist">${owner ? "por " + escapeHtml(owner) : ""}</div>
   `;
   card.addEventListener("click", () => _openPlaylist(pl));
   return card;
@@ -374,11 +374,11 @@ function renderCardsInto(container, tracks) {
     card.className = "spotify-card";
     card.innerHTML = `
       <div class="spotify-img-container">
-        ${imgUrl ? `<img src="${imgUrl}" class="spotify-img" alt="">` : ""}
+        ${imgUrl ? `<img src="${escapeHtml(imgUrl)}" class="spotify-img" alt="" loading="lazy">` : ""}
         ${previewUrl ? `<div class="spotify-preview-overlay"><button class="spotify-preview-btn" title="Adelanto">${playSvg}</button></div>` : ""}
       </div>
-      <div class="spotify-title" title="${title}">${title}</div>
-      <div class="spotify-artist" title="${artists}">${artists}</div>
+      <div class="spotify-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+      <div class="spotify-artist" title="${escapeHtml(artists)}">${escapeHtml(artists)}</div>
       <button class="btn-download-spotify${inLib ? " in-lib" : ""}">${inLib ? "En tu biblioteca" : "Descargar al Lab"}</button>
     `;
 

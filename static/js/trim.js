@@ -7,7 +7,12 @@ import {
   apiPost, formatSeconds, hideProgress, pollJob, refreshSongSelect,
   renderProgress, setStatus,
 } from "./api.js";
-import { canciones, cargarListaCanciones, pauseIcon, playIcon } from "./player.js";
+import { biblioteca, cargarListaCanciones, coverUrl, pauseIcon, playIcon } from "./player.js";
+import { showToast } from "./commands.js";
+import { activateView } from "./nav.js";
+
+/** Solo se recortan canciones completas: un recorte de un recorte es ruido. */
+export const soloCanciones = (cancion) => (cancion.kind || "song") !== "clip";
 
 export const trimSongSelect = document.getElementById("trimSongSelect");
 const audio = document.getElementById("trimAudio");
@@ -53,7 +58,7 @@ function _clamp(valor, min, max) {
 
 /** Duración de respaldo mientras el navegador no ha leído los metadatos. */
 function _duracionBiblioteca(stem) {
-  const partes = (canciones.find((c) => c.stem === stem)?.duracion || "").split(":");
+  const partes = (biblioteca.find((c) => c.stem === stem)?.duracion || "").split(":");
   if (partes.length !== 2) return 0;
   const total = Number(partes[0]) * 60 + Number(partes[1]);
   return Number.isFinite(total) && total > 0 ? total : 0;
@@ -114,7 +119,7 @@ export function onTrimSongChange() {
   fin = 0;
   _renderInputs();
 
-  const cancion = canciones.find((c) => c.stem === stem);
+  const cancion = biblioteca.find((c) => c.stem === stem);
   if (!stem) {
     audio.removeAttribute("src");
     _render();
@@ -295,11 +300,16 @@ saveBtn.addEventListener("click", async () => {
     pollJob(job_id, {
       onTick: (job) => renderProgress("trim", job),
       onDone: async (result) => {
-        terminar(`Recorte guardado: ${result.archivo}`, "ok");
+        const letra = result.karaoke
+          ? ` Nace con su letra (${result.versos} versos) y su karaoke: ya puedes crear el video.`
+          : result.versos
+            ? ` Nace con su letra (${result.versos} versos); falta sincronizarla en «Video».`
+            : " La canción no tiene letra con tiempos, así que el recorte queda sin letra.";
+        terminar(`Recorte guardado.${letra}`, "ok");
         nameInput.value = "";
-        // El recorte es una canción más: refrescamos biblioteca y selectores.
+        ultimoRecorte = result.stem;
         await cargarListaCanciones();
-        refreshSongSelect(trimSongSelect);
+        refreshSongSelect(trimSongSelect, null, soloCanciones);
         const [{ studioSongSelect }, { refreshLyricsSongs }] = await Promise.all([
           import("./studio.js"),
           import("./lyrics.js"),
@@ -314,4 +324,185 @@ saveBtn.addEventListener("click", async () => {
   }
 });
 
+// ---- Tus recortes --------------------------------------------------------------
+// Los recortes son material de trabajo: viven aquí (no en el reproductor) y se
+// limpian en cuanto su video está exportado.
+
+const clipsList = document.getElementById("clipsList");
+const clipsSummary = document.getElementById("clipsSummary");
+const clipsCleanBtn = document.getElementById("clipsCleanBtn");
+const clipAudio = document.getElementById("clipAudio");
+const TRASH_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 14h10l1-14"></path></svg>';
+
+let ultimoRecorte = null;
+let clipSonando = null;
+let limpiezaArmada = false;
+let limpiezaTimer = null;
+
+function _clips() {
+  return biblioteca.filter((cancion) => cancion.kind === "clip");
+}
+
+function _chip(texto, activo) {
+  const chip = document.createElement("span");
+  chip.className = "badge" + (activo ? " on" : "");
+  chip.textContent = texto;
+  return chip;
+}
+
+function _boton(texto, titulo, onClick, clase = "btn-ghost") {
+  const boton = document.createElement("button");
+  boton.type = "button";
+  boton.className = `clip-action ${clase}`;
+  boton.title = titulo;
+  if (texto.startsWith("<svg")) {
+    boton.innerHTML = texto;
+    boton.setAttribute("aria-label", titulo);
+  } else {
+    boton.textContent = texto;
+  }
+  boton.addEventListener("click", onClick);
+  return boton;
+}
+
+async function _eliminarClips(stems) {
+  if (!stems.length) return;
+  if (stems.includes(clipSonando)) clipAudio.pause();
+  await apiPost("/api/biblioteca/eliminar", {
+    items: stems.map((stem) => ({ stem, parts: ["audio"] })),
+  });
+  await cargarListaCanciones();
+  showToast(
+    stems.length === 1
+      ? "Recorte movido a la papelera"
+      : `${stems.length} recortes movidos a la papelera`
+  );
+}
+
+function _renderClips() {
+  if (!clipsList) return;
+  const clips = _clips();
+  const exportados = clips.filter((clip) => clip.videos > 0);
+  clipsSummary.textContent = !clips.length
+    ? "Aquí aparecerán los fragmentos que guardes. No se mezclan con las canciones del reproductor."
+    : `${clips.length} ${clips.length === 1 ? "recorte" : "recortes"}` +
+      (exportados.length ? `, ${exportados.length} con video ya exportado.` : ". Ninguno tiene video todavía.");
+
+  clipsCleanBtn.hidden = !exportados.length;
+  if (!limpiezaArmada) {
+    clipsCleanBtn.textContent = `Limpiar los ${exportados.length} ya exportados`;
+    clipsCleanBtn.classList.remove("is-armed");
+  }
+
+  const fragment = document.createDocumentFragment();
+  clips.forEach((clip) => {
+    const origen = biblioteca.find((cancion) => cancion.stem === clip.clip_of);
+    const fila = document.createElement("div");
+    fila.className = "clip-row" + (clip.stem === ultimoRecorte ? " is-new" : "");
+
+    const portada = document.createElement("div");
+    portada.className = "clip-cover";
+    const img = document.createElement("img");
+    img.alt = "";
+    img.loading = "lazy";
+    img.onerror = () => img.remove();
+    img.src = coverUrl(clip);
+    const play = document.createElement("button");
+    play.type = "button";
+    play.className = "clip-play";
+    const sonando = clipSonando === clip.stem && !clipAudio.paused;
+    play.innerHTML = sonando ? pauseIcon : playIcon;
+    play.setAttribute("aria-label", sonando ? "Pausar recorte" : "Escuchar recorte");
+    play.addEventListener("click", () => {
+      if (clipSonando === clip.stem && !clipAudio.paused) {
+        clipAudio.pause();
+        return;
+      }
+      audio.pause();
+      if (clipSonando !== clip.stem) {
+        clipSonando = clip.stem;
+        clipAudio.src = `/canciones/${encodeURIComponent(clip.nombre)}`;
+      }
+      clipAudio.play().catch(() => {});
+    });
+    portada.append(img, play);
+
+    const texto = document.createElement("div");
+    texto.className = "clip-copy";
+    const titulo = document.createElement("span");
+    titulo.className = "clip-title";
+    titulo.textContent = clip.title || clip.stem;
+    const detalle = document.createElement("span");
+    detalle.className = "clip-detail";
+    const desde = Number.isFinite(clip.clip_start) ? `desde ${formatSeconds(clip.clip_start)}` : "";
+    detalle.textContent = [
+      clip.duracion && clip.duracion !== "Desconocida" ? clip.duracion : "",
+      desde,
+      origen ? `de «${origen.title || origen.stem}»` : (clip.artist || ""),
+    ].filter(Boolean).join(", ");
+    const chips = document.createElement("div");
+    chips.className = "clip-chips";
+    chips.append(
+      _chip("Letra", clip.tiene_letra),
+      _chip("Karaoke", clip.tiene_sync),
+      _chip(clip.videos ? `${clip.videos} ${clip.videos === 1 ? "video" : "videos"}` : "Sin video", clip.videos > 0)
+    );
+    texto.append(titulo, detalle, chips);
+
+    const acciones = document.createElement("div");
+    acciones.className = "clip-actions";
+    acciones.append(
+      _boton("Letra", "Ver o corregir la letra del recorte", async () => {
+        activateView("lyrics");
+        const { openLyricsFor } = await import("./lyrics.js");
+        openLyricsFor(clip.stem, "clip");
+      }),
+      _boton("Crear video", "Abrir el recorte en el generador de video", async () => {
+        activateView("studio");
+        const { openStudioFor } = await import("./studio.js");
+        openStudioFor(clip.stem);
+      }, clip.videos ? "btn-ghost" : "clip-primary"),
+      _boton(TRASH_SVG, "Mover a la papelera (se puede restaurar en «Administrar»)", (event) => {
+        event.currentTarget.disabled = true;
+        _eliminarClips([clip.stem]).catch((error) => showToast(`No se pudo eliminar: ${error.message}`));
+      }, "clip-delete")
+    );
+
+    fila.append(portada, texto, acciones);
+    fragment.appendChild(fila);
+  });
+  clipsList.replaceChildren(fragment);
+}
+
+// Dos pasos en vez de un diálogo: el primer clic arma, el segundo confirma.
+clipsCleanBtn?.addEventListener("click", async () => {
+  const exportados = _clips().filter((clip) => clip.videos > 0).map((clip) => clip.stem);
+  if (!exportados.length) return;
+  if (!limpiezaArmada) {
+    limpiezaArmada = true;
+    clipsCleanBtn.classList.add("is-armed");
+    clipsCleanBtn.textContent = `¿Mover ${exportados.length} a la papelera? Pulsa otra vez`;
+    clearTimeout(limpiezaTimer);
+    limpiezaTimer = setTimeout(() => { limpiezaArmada = false; _renderClips(); }, 4000);
+    return;
+  }
+  clearTimeout(limpiezaTimer);
+  limpiezaArmada = false;
+  clipsCleanBtn.disabled = true;
+  try {
+    await _eliminarClips(exportados);
+  } catch (error) {
+    showToast(`No se pudo limpiar: ${error.message}`);
+  } finally {
+    clipsCleanBtn.disabled = false;
+  }
+});
+
+clipAudio?.addEventListener("play", _renderClips);
+clipAudio?.addEventListener("pause", _renderClips);
+clipAudio?.addEventListener("ended", _renderClips);
+audio.addEventListener("play", () => clipAudio?.pause());
+window.addEventListener("music-lab:library", _renderClips);
+
 _render();
+_renderClips();

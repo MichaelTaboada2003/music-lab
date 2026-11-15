@@ -24,3 +24,22 @@ export function relativeTime(when) {
   }
   return "justo ahora";
 }
+
+/** Segundos → "M:SS" (o "H:MM:SS"); valores no finitos dan "0:00". */
+export function formatClock(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
+/** Minúsculas y sin tildes, para que "cancion" encuentre "Canción". */
+export function normalizeText(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}

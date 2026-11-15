@@ -5,7 +5,7 @@ tras un cambio.
 """
 
 from fastapi import APIRouter
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from ..config import STATIC_DIR
 
@@ -33,6 +33,14 @@ def index():
     )
 
 
+_FAVICON = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<rect width="64" height="64" rx="15" fill="#0c0c0e"/>'
+    '<g fill="none" stroke="#1ed760" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M26 44V17l22-4v27"/><circle cx="20" cy="44" r="6"/><circle cx="42" cy="40" r="6"/></g></svg>'
+)
+
+
 @router.get("/favicon.ico")
 def favicon():
-    return {}
+    return Response(_FAVICON, media_type="image/svg+xml", headers={"Cache-Control": "max-age=86400"})

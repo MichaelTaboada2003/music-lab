@@ -50,6 +50,15 @@
 * **Recorte de Canciones (sección propia):** Línea de tiempo con tiradores arrastrables para marcar inicio y fin, escucha previa del tramo y exportación con fundidos como una canción nueva. El recorte es no destructivo: el archivo original nunca se modifica.
 * **Recortes como Pistas de Pleno Derecho:** Cada recorte queda marcado en la biblioteca, así que la vista de Letras permite alternar entre **Canciones** y **Recortes** para escribir y sincronizar la letra de un fragmento por separado. Además heredan la carátula del tema original, incrustada en el propio archivo.
 
+* **Paleta de Comandos (`⌘K` / `Ctrl+K`):** Busca cualquier canción sin distinguir tildes, salta entre secciones y ejecuta acciones del reproductor sin tocar el ratón.
+* **Atajos de Teclado y Teclas Multimedia:** `Espacio` reproduce/pausa, `←` `→` saltan 5 s, `⇧←` `⇧→` cambian de pista, `↑` `↓` volumen, `M` silencio, `S` aleatorio, `R` repetición. Las teclas multimedia, los auriculares y el control del sistema funcionan vía Media Session.
+* **Sesión Persistente:** Al volver a abrir la app retoma la última canción en el segundo exacto, con tu volumen y tus modos de aleatorio y repetición.
+* **Letra Navegable:** Pulsar un verso de la letra sincronizada salta a ese punto de la canción.
+
+* **Letra Automática al Descargar:** Cada canción nueva llega con su letra desde el catálogo abierto LRCLIB (también disponible con «Buscar letra automáticamente» en Letras).
+* **Recortes con Letra Heredada:** Al recortar, el fragmento nace con los versos que suenan en él; si la canción completa ya estaba sincronizada, hereda también el karaoke sin volver a pasar Whisper.
+* **Recortes Separados y Limpieza en un Clic:** Los recortes ya no aparecen en el reproductor: viven en «Recortar», con acceso directo a su letra y a crear el video, y un botón que manda a la papelera todos los que ya tienen video exportado.
+
 ### 🎤 2. Sincronización Automática de Karaoke por IA
 * **Alineación Forzada (Forced Alignment):** Utiliza **Whisper Timestamped** para mapear fonemas con la letra escrita, detectando el milisegundo exacto de inicio y fin de cada palabra.
 * **Aislamiento Vocal con Demucs (htdemucs):** Separa la pista vocal de la instrumental mediante redes neuronales convolucionales profundas para una sincronización inmune al ruido de fondo o baterías fuertes.

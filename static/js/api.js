@@ -4,9 +4,25 @@
 
 export const API = ""; // mismo origen que el servidor
 
+/** Extrae el mensaje de error del backend aunque la respuesta no sea JSON
+ *  (un 502 del proxy o un 500 en texto plano rompían `res.json()`). */
+async function _errorFrom(res) {
+  try {
+    const data = await res.json();
+    const detail = data?.detail;
+    if (typeof detail === "string") return new Error(detail);
+    if (Array.isArray(detail) && detail.length) {
+      return new Error(detail.map((d) => d.msg || String(d)).join(" · "));
+    }
+  } catch {
+    // Cuerpo vacío o no JSON: se usa el texto de estado.
+  }
+  return new Error(res.statusText || `Error ${res.status}`);
+}
+
 export async function apiGet(path) {
   const res = await fetch(API + path);
-  if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+  if (!res.ok) throw await _errorFrom(res);
   return res.json();
 }
 
@@ -16,7 +32,7 @@ export async function apiPost(path, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
   });
-  if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+  if (!res.ok) throw await _errorFrom(res);
   return res.json();
 }
 
@@ -25,25 +41,38 @@ export function setStatus(el, text, kind) {
   el.className = "status-box" + (kind ? " " + kind : "");
 }
 
-/** Sondea un job en background hasta que termina (800 ms entre polls). */
+/** Escapa texto para interpolarlo en innerHTML. */
+export function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
+/** Sondea un job en background hasta que termina.
+ *  Cada consulta espera a la anterior (un servidor ocupado renderizando no
+ *  acumula peticiones) y un fallo de red aislado no cancela el seguimiento:
+ *  solo se rinde tras varios fallos seguidos. Devuelve una función para parar. */
 export function pollJob(jobId, { onDone, onError, onTick }) {
-  const interval = setInterval(async () => {
+  let stopped = false;
+  let failures = 0;
+  let timer = null;
+  const tick = async () => {
+    if (stopped) return;
     try {
       const job = await apiGet(`/api/job/${jobId}`);
+      if (stopped) return;
+      failures = 0;
       if (onTick) onTick(job);
-      if (job.status === "done") {
-        clearInterval(interval);
-        onDone(job.result);
-      } else if (job.status === "error") {
-        clearInterval(interval);
-        onError(job.error);
-      }
+      if (job.status === "done") return onDone(job.result);
+      if (job.status === "error") return onError(job.error);
     } catch (e) {
-      clearInterval(interval);
-      onError(e.message);
+      failures += 1;
+      if (failures >= 5 || /no encontrado/i.test(e.message)) return onError(e.message);
     }
-  }, 800);
-  return interval;
+    timer = setTimeout(tick, failures ? 1500 : 700);
+  };
+  timer = setTimeout(tick, 350);
+  return () => { stopped = true; clearTimeout(timer); };
 }
 
 export function waitForJob(jobId) {

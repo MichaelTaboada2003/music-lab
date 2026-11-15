@@ -3,12 +3,12 @@
 // ============================================================
 
 import {
-  apiGet, apiPost, setStatus, pollJob,
+  apiGet, apiPost, escapeHtml, setStatus, pollJob,
   renderProgress, hideProgress, formatSeconds, refreshSongSelect,
 } from "./api.js";
 import { showKaraoke } from "./karaoke.js";
 import { loadVideoGallery } from "./videos.js";
-import { canciones, indiceActual } from "./player.js";
+import { biblioteca, canciones, indiceActual } from "./player.js";
 
 // ---- DOM refs ---------------------------------------------------------------
 export const studioSongSelect = document.getElementById("studioSongSelect");
@@ -205,7 +205,7 @@ function _studioInitials(song) {
 }
 
 function updateStudioTrackContext() {
-  const song = canciones.find((item) => item.stem === studioSongSelect.value);
+  const song = biblioteca.find((item) => item.stem === studioSongSelect.value);
   if (!song) {
     studioTrackTitle.textContent = "Elige una canción";
     studioTrackArtist.textContent = "La previsualización aparecerá aquí";
@@ -382,7 +382,7 @@ function renderStanzaPicker(stanzas) {
     option.dataset.stanzaIndex = stanzaIndex;
     option.innerHTML = `
       <span class="stanza-time">${formatSeconds(start)} — ${formatSeconds(end)}</span>
-      <span class="stanza-lines">${stanza.map((l) => l.text).join("\n")}</span>
+      <span class="stanza-lines">${escapeHtml(stanza.map((l) => l.text).join("\n"))}</span>
     `;
     option.addEventListener("click", () => {
       option.classList.toggle("selected");
@@ -431,7 +431,7 @@ let fragStopHandler = null;
 fragPreviewBtn.addEventListener("click", async () => {
   const stem = studioSongSelect.value;
   if (!stem) return;
-  const song = canciones.find((c) => c.stem === stem);
+  const song = biblioteca.find((c) => c.stem === stem);
   if (!song) return;
 
   // Necesitamos la sincronización para saber cuándo revelar cada palabra.
@@ -752,7 +752,7 @@ let _frameUrl = null;
 const FRAME_MIN_STEP = 1 / 30;
 
 function _previewMeta() {
-  const song = canciones.find((c) => c.stem === studioSongSelect.value);
+  const song = biblioteca.find((c) => c.stem === studioSongSelect.value);
   return {
     titulo: document.getElementById("videoTitulo").value.trim() || song?.title || studioSongSelect.value,
     artista: document.getElementById("videoArtista").value.trim() || song?.artist || "",
@@ -843,7 +843,7 @@ videoGenerateBtn.addEventListener("click", async () => {
   const opts = studioSyncOptions();
   const nombre_salida =
     document.getElementById("videoOutputName").value.trim() || null;
-  const selectedSong = canciones.find((song) => song.stem === stem);
+  const selectedSong = biblioteca.find((song) => song.stem === stem);
   const titulo = document.getElementById("videoTitulo").value.trim() || selectedSong?.title || stem;
   const artista = document.getElementById("videoArtista").value.trim() || selectedSong?.artist || null;
   const start_time =
@@ -905,3 +905,11 @@ videoGenerateBtn.addEventListener("click", async () => {
     videoGenerateBtn.disabled = false;
   }
 });
+
+/** Abre el estudio con una canción o recorte ya elegido (desde «Recortar»). */
+export async function openStudioFor(stem) {
+  await refreshSongSelect(studioSongSelect);
+  if (![...studioSongSelect.options].some((option) => option.value === stem)) return;
+  studioSongSelect.value = stem;
+  studioSongSelect.dispatchEvent(new Event("change", { bubbles: true }));
+}

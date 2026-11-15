@@ -20,6 +20,7 @@ import "./trim.js";
 import "./studio.js";
 import "./discover.js";
 import "./visualizer.js";
+import "./commands.js";
 
 // --- Inicialización ------------------------------------------------
 
@@ -67,7 +68,13 @@ downloadForm.addEventListener("submit", async (e) => {
       onTick: (job) => renderProgress("download", job),
       onDone: (data) => {
         hideProgress("download");
-        setStatus(downloadStatus, `Descargado con éxito: ${data.archivo}`, "ok");
+        setStatus(
+          downloadStatus,
+          `Descargado: ${data.archivo}. ` + (data.letra
+            ? "Su letra se añadió automáticamente."
+            : "No se encontró su letra en el catálogo; puedes escribirla en «Letras»."),
+          "ok"
+        );
         downloadForm.reset();
         downloadSubmit.disabled = false;
         cargarListaCanciones();

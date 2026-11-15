@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Music Lab</title>
+  <link rel="icon" href="/favicon.ico" type="image/svg+xml">
+  <meta name="theme-color" content="#0c0c0e">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -23,6 +27,12 @@
         <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; vertical-align:middle"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
         Music Lab
       </div>
+
+      <button class="command-open" id="commandOpenBtn" type="button" title="Buscar canciones y acciones">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="20" y1="20" x2="16.2" y2="16.2"></line></svg>
+        <span>Buscar</span>
+        <kbd>⌘K</kbd>
+      </button>
 
       <div class="nav-group-label">Biblioteca</div>
       <button class="nav-item active" data-view="player">
@@ -84,20 +94,29 @@
             </div>
 
             <div class="np-buttons">
-              <button class="control-button" id="prevBtn" title="Anterior">
+              <button class="control-button mode-button" id="shuffleBtn" type="button" title="Aleatorio (S)" aria-label="Aleatorio" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" stroke-width="2"><path d="M16 3h5v5"></path><path d="M4 20L21 3"></path><path d="M21 16v5h-5"></path><path d="M15 15l6 6"></path><path d="M4 4l5 5"></path></svg>
+              </button>
+              <button class="control-button" id="prevBtn" type="button" title="Anterior (⇧ ←)" aria-label="Anterior">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="22" height="22" stroke-width="2.5"><path d="M7 6v12"></path><path d="M18 6l-6 6l6 6"></path></svg>
               </button>
-              <button class="control-button play-pause" id="playBtn" title="Reproducir/Pausar">
+              <button class="control-button play-pause" id="playBtn" type="button" title="Reproducir o pausar (Espacio)" aria-label="Reproducir">
                 <svg id="playIconSvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="26" height="26" stroke-width="2"><path d="M10 18l6 -6l-6 -6v12"></path></svg>
               </button>
-              <button class="control-button" id="nextBtn" title="Siguiente">
+              <button class="control-button" id="nextBtn" type="button" title="Siguiente (⇧ →)" aria-label="Siguiente">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="22" height="22" stroke-width="2.5"><path d="M6 6l6 6l-6 6"></path><path d="M17 5v13"></path></svg>
+              </button>
+              <button class="control-button mode-button" id="repeatBtn" type="button" title="Repetir (R)" aria-label="Repetir">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" stroke-width="2"><path d="M17 2l4 4-4 4"></path><path d="M3 11v-1a4 4 0 0 1 4-4h14"></path><path d="M7 22l-4-4 4-4"></path><path d="M21 13v1a4 4 0 0 1-4 4H3"></path></svg>
+                <span class="mode-one" aria-hidden="true">1</span>
               </button>
             </div>
 
             <div class="np-volume">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" stroke-width="2"><path d="M15 8a5 5 0 0 1 0 8"></path><path d="M6 15h-2a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1h2l3.5 -4.5a.8 .8 0 0 1 1.5 .5v14a.8 .8 0 0 1 -1.5 .5l-3.5 -4.5"></path></svg>
-              <input type="range" class="volume-slider" min="0" max="1" step="0.1" value="0.5" />
+              <button class="volume-mute" id="volumeMuteBtn" type="button" title="Silenciar (M)" aria-label="Silenciar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" stroke-width="2"><path d="M6 15h-2a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1h2l3.5 -4.5a.8 .8 0 0 1 1.5 .5v14a.8 .8 0 0 1 -1.5 .5l-3.5 -4.5"></path><path class="volume-wave" d="M15 8a5 5 0 0 1 0 8"></path><path class="volume-cross" d="M16 9l5 6m0 -6l-5 6"></path></svg>
+              </button>
+              <input type="range" class="volume-slider" min="0" max="1" step="0.01" value="0.5" aria-label="Volumen" />
             </div>
 
             <div class="np-karaoke-mode" id="karaokeModeControl">
@@ -145,17 +164,6 @@
               </div>
             </details>
 
-            <div class="library-head">
-              <span>Tu biblioteca</span>
-              <span id="libraryCount">0 canciones</span>
-            </div>
-            <div class="playlist-search">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-              <input type="text" id="playlistSearch" placeholder="Buscar en tu biblioteca..." />
-            </div>
-            <div class="playlist-wrap">
-              <div class="playlist" id="playlistContainer"></div>
-            </div>
           </div>
 
           <!-- Columna derecha: letra / karaoke -->
@@ -172,6 +180,21 @@
               <p>Sin letra disponible</p>
             </div>
           </div>
+
+          <!-- Columna de biblioteca: solo canciones completas (los recortes viven en «Recortar») -->
+          <aside class="np-library" aria-label="Tu biblioteca">
+            <div class="library-head">
+              <span>Tu biblioteca</span>
+              <span id="libraryCount">0 canciones</span>
+            </div>
+            <div class="playlist-search">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="search" id="playlistSearch" placeholder="Buscar en tu biblioteca..." autocomplete="off" aria-label="Buscar en tu biblioteca" />
+            </div>
+            <div class="playlist-wrap">
+              <div class="playlist" id="playlistContainer"></div>
+            </div>
+          </aside>
 
         </div>
       </section>
@@ -200,7 +223,10 @@
           <label>Letra (separa las estrofas con una línea vacía)</label>
           <textarea id="lyricsTextarea" rows="16" placeholder="Elige una canción para ver o escribir su letra..."></textarea>
 
-          <button id="lyricsSaveBtn">Guardar letra</button>
+          <div class="lyrics-actions">
+            <button id="lyricsSaveBtn">Guardar letra</button>
+            <button id="lyricsFindBtn" type="button" class="btn-ghost" title="Busca la letra en el catálogo abierto LRCLIB">Buscar letra automáticamente</button>
+          </div>
         </div>
         <div id="lyricsStatus" class="status-box"></div>
       </section>
@@ -209,8 +235,9 @@
       <section class="view" id="view-trim">
         <h1>Recortar canción</h1>
         <p class="hint">
-          Marca el tramo que quieres conservar, escúchalo y guárdalo como una
-          canción nueva de tu biblioteca. El archivo original no se toca.
+          Marca el tramo que quieres conservar, escúchalo y guárdalo como
+          recorte. Si la canción tiene letra, el recorte nace con sus versos; si
+          además está sincronizada, también con su karaoke. El original no se toca.
         </p>
 
         <div class="form-card trim-card">
@@ -280,6 +307,18 @@
           <div class="job-progress-bar"><div class="job-progress-fill" id="trimProgressFill"></div></div>
         </div>
         <div id="trimStatus" class="status-box"></div>
+
+        <section class="clips" id="clipsSection" aria-labelledby="clipsTitle">
+          <div class="clips-head">
+            <div>
+              <h2 id="clipsTitle">Tus recortes</h2>
+              <p class="clips-summary" id="clipsSummary"></p>
+            </div>
+            <button id="clipsCleanBtn" type="button" class="btn-ghost" hidden></button>
+          </div>
+          <div class="clips-list" id="clipsList"></div>
+          <audio id="clipAudio" preload="none" hidden></audio>
+        </section>
       </section>
 
       <!-- ============ VISTA: VIDEO ============ -->
@@ -888,6 +927,30 @@
       <button class="mini-play" id="miniPlayBtn" type="button" title="Reproducir o pausar"></button>
       <div class="mini-progress" aria-hidden="true"><i></i></div>
     </div>
+
+    <!-- Paleta de comandos (⌘K / Ctrl+K) -->
+    <dialog id="commandPalette" class="command-palette" aria-label="Buscar canciones y acciones">
+      <div class="cmd-card">
+        <div class="cmd-search">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="20" y1="20" x2="16.2" y2="16.2"></line></svg>
+          <input id="commandInput" type="text" autocomplete="off" spellcheck="false" placeholder="Busca una canción, una sección o una acción…" aria-controls="commandList" />
+          <kbd>esc</kbd>
+        </div>
+        <div class="cmd-list" id="commandList" role="listbox"></div>
+        <div class="cmd-footer" aria-hidden="true">
+          <span><kbd>↑</kbd><kbd>↓</kbd> moverse</span>
+          <span><kbd>↵</kbd> abrir</span>
+          <span><kbd>Espacio</kbd> play</span>
+          <span><kbd>←</kbd><kbd>→</kbd> ±5 s</span>
+          <span><kbd>⇧</kbd>+<kbd>←</kbd><kbd>→</kbd> pista</span>
+          <span><kbd>S</kbd> aleatorio</span>
+          <span><kbd>R</kbd> repetir</span>
+          <span><kbd>M</kbd> silencio</span>
+        </div>
+      </div>
+    </dialog>
+
+    <div class="app-toast" id="appToast" role="status" aria-live="polite"></div>
 
     <!-- Dialog para cambiar/buscar carátula -->
     <dialog id="coverDialog" class="cover-dialog">
